@@ -1,0 +1,41 @@
+{
+  "name": "business-sales-test",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "postinstall": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:push": "prisma db push",
+    "db:studio": "prisma studio",
+    "db:reset": "prisma migrate reset",
+    "seed:admin": "node scripts/seed-admin.mjs",
+    "seed:data": "node scripts/seed-data.mjs",
+    "hash-pin": "node scripts/hash-pin.mjs"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "@types/bcryptjs": "^2.4.6",
+    "bcryptjs": "^3.0.3",
+    "lucide-react": "^1.61.0",
+    "next": "16.4.3",
+    "prisma": "^5.22.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@tailwindcss/turbopack": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.3",
+    "postcss": "^8.5.31",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
