@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { getProducts } from "@/actions/products";
 import ProductListClient from "@/components/products/ProductListClient";
 
-export const metadata: Metadata = { title: "Products — Business Sales" };
+export const metadata: Metadata = { title: "Products — GeoSales OS" };
 
 export default async function ProductsPage() {
   const products = await getProducts({ isActive: true });
@@ -14,7 +14,7 @@ export default async function ProductsPage() {
           Product Catalog & Pricing
         </h1>
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-          Manage products, SKUs, and unit prices. Historical order line items remain unchanged when catalog prices are updated.
+          Master catalog for printing & branding collateral. Since items sell at customized rates per business, unit prices are flexibly defined per order.
         </p>
       </div>
 

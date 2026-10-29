@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect, useRef } from "react";
 import Link from "next/link";
 import { Pagination } from "@/components/ui/Pagination";
 import {
@@ -9,9 +9,21 @@ import {
   deleteBusiness,
   archiveBusiness,
   restoreBusiness,
+  geocodeAddressAction,
+  searchAddressAutocomplete,
+  AutocompleteSuggestion,
   BusinessInput,
 } from "@/actions/businesses";
+import { BANGLADESH_DISTRICTS } from "@/lib/district-resolver";
 import { useRouter } from "next/navigation";
+import {
+  AlertTriangle,
+  Trash2,
+  MapPin,
+  CheckCircle2,
+  Archive as ArchiveIcon,
+  Loader2,
+} from "lucide-react";
 
 interface BusinessItem {
   id: string;
@@ -47,8 +59,8 @@ export default function BusinessListClient({
   const [businesses, setBusinesses] = useState<BusinessItem[]>(initialBusinesses);
   const [q, setQ] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("ALL");
-  const [selectedArea, setSelectedArea] = useState("ALL");
-  const [selectedColor, setSelectedColor] = useState<"ALL" | "GREEN" | "RED">("ALL");
+  const [selectedDistrict, setSelectedDistrict] = useState("ALL");
+  const [selectedLocationStatus, setSelectedLocationStatus] = useState<"ALL" | "READY" | "NEEDS_LOCATION">("ALL");
   const [showArchived, setShowArchived] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const PAGE_SIZE = 10;
@@ -56,10 +68,12 @@ export default function BusinessListClient({
   // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingBusiness, setEditingBusiness] = useState<BusinessItem | null>(null);
+  const [deletingBusiness, setDeletingBusiness] = useState<BusinessItem | null>(null);
+  const [archivingBusiness, setArchivingBusiness] = useState<BusinessItem | null>(null);
   const [formName, setFormName] = useState("");
   const [formCategory, setFormCategory] = useState("");
   const [formArea, setFormArea] = useState("");
-  const [formDistrict, setFormDistrict] = useState("Dhaka");
+  const [formDistrict, setFormDistrict] = useState("");
   const [formContact, setFormContact] = useState("");
   const [formPhone, setFormPhone] = useState("");
   const [formAddress, setFormAddress] = useState("");
@@ -67,22 +81,174 @@ export default function BusinessListClient({
   const [formLng, setFormLng] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
 
+  // Auto-geocoding state
+  const [isGeocoding, setIsGeocoding] = useState(false);
+  const [geocodeFeedback, setGeocodeFeedback] = useState<{ text: string; success: boolean } | null>(null);
+
+  // Map Search / Autocomplete state
+  const [formMapQuery, setFormMapQuery] = useState("");
+  const [addressSuggestions, setAddressSuggestions] = useState<AutocompleteSuggestion[]>([]);
+  const [isSearchingAddress, setIsSearchingAddress] = useState(false);
+  const [showAddressSuggestions, setShowAddressSuggestions] = useState(false);
+  const addressContainerRef = useRef<HTMLDivElement>(null);
+  // Flag to suppress the next search-effect after a suggestion is selected
+  const justSelectedRef = useRef(false);
+
+  // Debounced search for live map pin suggestions
+  useEffect(() => {
+    // Skip search immediately after a suggestion was selected
+    if (justSelectedRef.current) {
+      justSelectedRef.current = false;
+      return;
+    }
+    if (!formMapQuery || formMapQuery.trim().length < 2) {
+      setAddressSuggestions([]);
+      setShowAddressSuggestions(false);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setIsSearchingAddress(true);
+      try {
+        const results = await searchAddressAutocomplete(formMapQuery);
+        setAddressSuggestions(results);
+        setShowAddressSuggestions(results.length > 0);
+      } catch (err) {
+        setAddressSuggestions([]);
+      } finally {
+        setIsSearchingAddress(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [formMapQuery]);
+
+  // Click outside listener to dismiss autocomplete dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        addressContainerRef.current &&
+        !addressContainerRef.current.contains(event.target as Node)
+      ) {
+        setShowAddressSuggestions(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleSelectSuggestion = (item: AutocompleteSuggestion) => {
+    // Prevent the useEffect from re-triggering a search after setting the query
+    justSelectedRef.current = true;
+    setFormMapQuery(item.formatted);
+    // If physical address is still empty, populate it as a convenience
+    if (!formAddress.trim()) {
+      setFormAddress(item.formatted);
+    }
+    if (item.area) setFormArea(item.area);
+    if (item.district) setFormDistrict(item.district);
+    setFormLat(item.latitude.toFixed(6));
+    setFormLng(item.longitude.toFixed(6));
+    setShowAddressSuggestions(false);
+    setGeocodeFeedback({
+      text: `Map Pin Locked: (${item.latitude.toFixed(4)}, ${item.longitude.toFixed(4)}) — Ready on Map!`,
+      success: true,
+    });
+  };
+
   // Deletion / update feedback
   const [feedbackMsg, setFeedbackMsg] = useState<{ text: string; type: "success" | "error" } | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  const handleAutoGeocode = async () => {
+    const name = formName.trim();
+    const physAddr = formAddress.trim();
+    const loc = physAddr || formArea.trim() || formMapQuery.trim();
+    if (!name && !loc) {
+      setGeocodeFeedback({
+        text: "Please enter the Business Name and/or Physical Address first to auto-detect coordinates.",
+        success: false,
+      });
+      return;
+    }
+    setIsGeocoding(true);
+    setGeocodeFeedback(null);
+    try {
+      // Step 1: Try autocomplete first — it finds specific POIs (restaurants, shops)
+      // much better than the geocode/search endpoint which returns area-level results.
+      // Combine name + address as a single free-text query (same as the map pin search).
+      const autoQuery = [name, loc].filter(Boolean).join(", ");
+      const suggestions = await searchAddressAutocomplete(autoQuery, true);
+
+      if (suggestions.length > 0) {
+        // Use the top autocomplete result — same as if user had picked it from dropdown
+        const top = suggestions[0];
+        justSelectedRef.current = true; // prevent dropdown from reopening
+        setFormMapQuery(top.formatted);
+        if (!formAddress.trim()) setFormAddress(top.formatted);
+        if (top.area) setFormArea(top.area);
+        if (top.district) setFormDistrict(top.district);
+        setFormLat(top.latitude.toFixed(6));
+        setFormLng(top.longitude.toFixed(6));
+        setGeocodeFeedback({
+          text: `Map Pin Locked: (${top.latitude.toFixed(4)}, ${top.longitude.toFixed(4)}) — Ready on Map!`,
+          success: true,
+        });
+        return;
+      }
+
+      // Step 2: Fallback to geocode/search (area-level, less precise for POIs)
+      const res = await geocodeAddressAction(name, loc);
+      if (res.success && res.latitude && res.longitude) {
+        setFormLat(res.latitude.toFixed(6));
+        setFormLng(res.longitude.toFixed(6));
+        if (res.resolvedDistrict) {
+          setFormDistrict(res.resolvedDistrict);
+        }
+        if (res.formattedAddress) {
+          justSelectedRef.current = true;
+          setFormMapQuery(res.formattedAddress);
+          if (!formAddress.trim()) {
+            setFormAddress(res.formattedAddress);
+          }
+        }
+        setGeocodeFeedback({
+          text: `Map Pin Locked: (${res.latitude.toFixed(4)}, ${res.longitude.toFixed(4)}) — Ready on Map!`,
+          success: true,
+        });
+      } else {
+        setGeocodeFeedback({
+          text: res.error || "Could not pinpoint location. Please check the address or search for a landmark.",
+          success: false,
+        });
+      }
+    } catch (err: any) {
+      setGeocodeFeedback({
+        text: "Network error during geocoding. Please try again.",
+        success: false,
+      });
+    } finally {
+      setIsGeocoding(false);
+    }
+  };
+
 
   const openAddModal = () => {
     setEditingBusiness(null);
     setFormName("");
     setFormCategory("");
     setFormArea("");
-    setFormDistrict("Dhaka");
+    setFormDistrict("");
     setFormContact("");
     setFormPhone("");
     setFormAddress("");
+    setFormMapQuery("");
     setFormLat("");
     setFormLng("");
     setFormError(null);
+    setGeocodeFeedback(null);
+    setAddressSuggestions([]);
+    setShowAddressSuggestions(false);
     setIsModalOpen(true);
   };
 
@@ -95,9 +261,13 @@ export default function BusinessListClient({
     setFormContact(b.contactName || "");
     setFormPhone(b.phoneRaw || "");
     setFormAddress(b.address || "");
+    setFormMapQuery(b.address || "");
     setFormLat(b.latitude != null ? String(b.latitude) : "");
     setFormLng(b.longitude != null ? String(b.longitude) : "");
     setFormError(null);
+    setGeocodeFeedback(null);
+    setAddressSuggestions([]);
+    setShowAddressSuggestions(false);
     setIsModalOpen(true);
   };
 
@@ -106,11 +276,20 @@ export default function BusinessListClient({
       setFormError("Business name is required.");
       return;
     }
+    if (!formDistrict.trim()) {
+      setFormError("Please select a district.");
+      return;
+    }
+
+    const resolvedArea =
+      formArea.trim() ||
+      (formAddress ? formAddress.split(",")[0].trim() : undefined) ||
+      formDistrict;
 
     const payload: BusinessInput = {
       name: formName.trim(),
       category: formCategory.trim() || undefined,
-      area: formArea.trim() || undefined,
+      area: resolvedArea || undefined,
       district: formDistrict.trim() || undefined,
       contactName: formContact.trim() || undefined,
       phoneRaw: formPhone.trim() || undefined,
@@ -136,8 +315,9 @@ export default function BusinessListClient({
     });
   };
 
-  const handleDelete = (id: string, name: string) => {
-    if (!confirm(`Are you sure you want to permanently delete "${name}"?`)) return;
+  const confirmDeleteAction = () => {
+    if (!deletingBusiness) return;
+    const { id, name } = deletingBusiness;
 
     startTransition(async () => {
       const res = await deleteBusiness(id);
@@ -145,18 +325,23 @@ export default function BusinessListClient({
         setFeedbackMsg({ text: res.error, type: "error" });
       } else {
         setFeedbackMsg({ text: `Deleted "${name}" successfully.`, type: "success" });
+        setDeletingBusiness(null);
         router.refresh();
       }
     });
   };
 
-  const handleArchive = (id: string, name: string) => {
+  const confirmArchiveAction = () => {
+    if (!archivingBusiness) return;
+    const { id, name } = archivingBusiness;
+
     startTransition(async () => {
       const res = await archiveBusiness(id);
       if (res.error) {
         setFeedbackMsg({ text: res.error, type: "error" });
       } else {
         setFeedbackMsg({ text: `Archived "${name}". Historical orders are preserved.`, type: "success" });
+        setArchivingBusiness(null);
         router.refresh();
       }
     });
@@ -176,20 +361,27 @@ export default function BusinessListClient({
 
   const filtered = businesses.filter((b) => {
     if (showArchived ? b.isActive : !b.isActive) return false;
+    // Client directory only lists businesses with at least 1 order
+    if (b.orderCount === 0) return false;
 
     if (selectedCategory !== "ALL" && b.category !== selectedCategory) return false;
-    if (selectedArea !== "ALL" && b.area !== selectedArea) return false;
+    if (selectedDistrict !== "ALL" && b.district !== selectedDistrict) return false;
 
-    if (selectedColor === "GREEN" && !b.isGreen) return false;
-    if (selectedColor === "RED" && b.isGreen) return false;
+    if (selectedLocationStatus === "READY" && (b.latitude == null || b.longitude == null)) {
+      return false;
+    }
+    if (selectedLocationStatus === "NEEDS_LOCATION" && (b.latitude != null && b.longitude != null)) {
+      return false;
+    }
 
     if (q) {
       const query = q.toLowerCase();
       const matchName = b.name.toLowerCase().includes(query);
       const matchPhone = b.phoneRaw?.toLowerCase().includes(query) || false;
       const matchArea = b.area?.toLowerCase().includes(query) || false;
+      const matchDistrict = b.district?.toLowerCase().includes(query) || false;
       const matchCat = b.category?.toLowerCase().includes(query) || false;
-      if (!matchName && !matchPhone && !matchArea && !matchCat) return false;
+      if (!matchName && !matchPhone && !matchArea && !matchDistrict && !matchCat) return false;
     }
 
     return true;
@@ -256,35 +448,35 @@ export default function BusinessListClient({
             ))}
           </select>
 
-          {/* Area Filter */}
+          {/* District Filter */}
           <select
-            value={selectedArea}
+            value={selectedDistrict}
             onChange={(e) => {
-              setSelectedArea(e.target.value);
+              setSelectedDistrict(e.target.value);
               setCurrentPage(1);
             }}
             className="px-3.5 py-2.5 bg-white dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700/80 rounded-lg text-sm text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-all cursor-pointer shadow-sm"
           >
-            <option value="ALL">All Areas ({filterOptions.areas.length})</option>
-            {filterOptions.areas.map((a) => (
-              <option key={a} value={a}>
-                {a}
+            <option value="ALL">All Districts ({filterOptions.districts.length})</option>
+            {filterOptions.districts.map((d) => (
+              <option key={d} value={d}>
+                {d}
               </option>
             ))}
           </select>
 
-          {/* Order Color Filter */}
+          {/* Location Status Filter */}
           <select
-            value={selectedColor}
+            value={selectedLocationStatus}
             onChange={(e) => {
-              setSelectedColor(e.target.value as any);
+              setSelectedLocationStatus(e.target.value as any);
               setCurrentPage(1);
             }}
             className="px-3.5 py-2.5 bg-white dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700/80 rounded-lg text-sm text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-all cursor-pointer shadow-sm"
           >
-            <option value="ALL">All Marker Colors</option>
-            <option value="GREEN">🟢 Green (≥1 Order)</option>
-            <option value="RED">🔴 Red (0 Orders)</option>
+            <option value="ALL">All Locations</option>
+            <option value="READY">Ready on Map (Geocoded)</option>
+            <option value="NEEDS_LOCATION">Needs Location</option>
           </select>
 
           {/* Active / Archive Toggle */}
@@ -312,25 +504,28 @@ export default function BusinessListClient({
         </div>
 
         {/* Filter Summary & Count */}
-        <div className="pt-3 border-t border-slate-800/80 flex flex-wrap items-center gap-2.5 text-xs text-slate-400">
+        <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap items-center gap-2.5 text-xs text-slate-500 dark:text-slate-400">
           <span>
-            Showing <strong className="text-slate-100 font-semibold">{filtered.length}</strong> {showArchived ? "archived" : "active"} businesses
+            Showing <strong className="text-slate-900 dark:text-slate-100 font-semibold">{filtered.length}</strong> {showArchived ? "archived" : "active"} client businesses
           </span>
-          <span className="text-slate-600">•</span>
-          <span className="text-emerald-400 font-medium flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
-            {filtered.filter((b) => b.isGreen).length} Green
+          <span className="text-slate-300 dark:text-slate-600">•</span>
+          <span className="text-blue-600 dark:text-blue-400 font-medium">
+            {filtered.reduce((sum, b) => sum + b.orderCount, 0)} Total Orders
           </span>
-          <span className="text-slate-600">•</span>
-          <span className="text-rose-400 font-medium flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-rose-500 inline-block" />
-            {filtered.filter((b) => !b.isGreen).length} Red
+          <span className="text-slate-300 dark:text-slate-600">•</span>
+          <span className="text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+            {filtered.filter((b) => b.latitude != null && b.longitude != null).length} Ready on Map
           </span>
-          <span className="text-slate-600">•</span>
-          <span className="text-amber-400 font-medium flex items-center gap-1">
-            <span>📍</span>
-            {filtered.filter((b) => b.latitude == null).length} Location Needed
-          </span>
+          {filtered.some((b) => b.latitude == null || b.longitude == null) && (
+            <>
+              <span className="text-slate-300 dark:text-slate-600">•</span>
+              <span className="text-amber-500 dark:text-amber-400 font-medium flex items-center gap-1">
+                <MapPin className="w-3.5 h-3.5 text-amber-500" />
+                {filtered.filter((b) => b.latitude == null || b.longitude == null).length} Location Needed
+              </span>
+            </>
+          )}
         </div>
       </div>
 
@@ -339,58 +534,35 @@ export default function BusinessListClient({
         <table className="w-full text-left border-collapse text-sm">
           <thead>
             <tr className="bg-slate-50 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">
-              <th className="px-4 py-3.5">Status / Color</th>
-              <th className="px-4 py-3.5">Business Name</th>
-              <th className="px-4 py-3.5">Category</th>
-              <th className="px-4 py-3.5">Area / District</th>
-              <th className="px-4 py-3.5">Phone</th>
-              <th className="px-4 py-3.5">Location</th>
-              <th className="px-4 py-3.5">Orders</th>
-              <th className="px-4 py-3.5 text-right">Actions</th>
+              <th className="px-4 py-3.5 w-[260px] max-w-[280px]">Business Name</th>
+              <th className="px-4 py-3.5 w-[110px] whitespace-nowrap">Category</th>
+              <th className="px-4 py-3.5 min-w-[220px]">Area / District</th>
+              <th className="px-4 py-3.5 w-[130px] whitespace-nowrap">Phone</th>
+              <th className="px-4 py-3.5 w-[140px] whitespace-nowrap">Location</th>
+              <th className="px-4 py-3.5 w-[100px] whitespace-nowrap">Orders</th>
+              <th className="px-4 py-3.5 w-[180px] text-right whitespace-nowrap">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800/40">
             {paginatedBusinesses.length === 0 ? (
               <tr>
-                <td colSpan={8} className="text-center py-12 text-slate-500 font-medium">
+                <td colSpan={7} className="text-center py-12 text-slate-500 font-medium">
                   No businesses matching current filters.
                 </td>
               </tr>
             ) : (
               paginatedBusinesses.map((b) => (
                 <tr key={b.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/30 transition-colors">
-                  <td className="px-4 py-3.5">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`w-2.5 h-2.5 rounded-full ${
-                          b.isGreen
-                            ? "bg-emerald-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]"
-                            : "bg-rose-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]"
-                        }`}
-                      />
-                      <span
-                        className={`text-xs font-medium ${
-                          b.isGreen ? "text-emerald-400" : "text-rose-400"
-                        }`}
-                      >
-                        {b.isGreen ? "Green" : "Red"}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3.5">
+                  <td className="px-4 py-3.5 w-[260px] max-w-[280px]">
                     <Link
                       href={`/dashboard/businesses/${b.id}`}
-                      className="font-semibold text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                      className="font-semibold text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 transition-colors block truncate"
+                      title={b.name}
                     >
                       {b.name}
                     </Link>
-                    {b.address && (
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 max-w-sm truncate">
-                        {b.address}
-                      </p>
-                    )}
                   </td>
-                  <td className="px-4 py-3.5">
+                  <td className="px-4 py-3.5 whitespace-nowrap">
                     <span className="inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-500/20">
                       {b.category || "Unspecified"}
                     </span>
@@ -398,10 +570,10 @@ export default function BusinessListClient({
                   <td className="px-4 py-3.5 text-slate-600 dark:text-slate-300">
                     {b.area || "Unspecified"}, {b.district || "Dhaka"}
                   </td>
-                  <td className="px-4 py-3.5 font-mono text-slate-600 dark:text-slate-300 text-xs">
+                  <td className="px-4 py-3.5 font-mono text-slate-600 dark:text-slate-300 text-xs whitespace-nowrap">
                     {b.phoneRaw || "—"}
                   </td>
-                  <td className="px-4 py-3.5">
+                  <td className="px-4 py-3.5 whitespace-nowrap">
                     {b.latitude != null && b.longitude != null ? (
                       <span className="text-xs font-mono text-slate-600 dark:text-slate-300">
                         {b.latitude.toFixed(4)}, {b.longitude.toFixed(4)}
@@ -412,7 +584,7 @@ export default function BusinessListClient({
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-3.5">
+                  <td className="px-4 py-3.5 whitespace-nowrap">
                     <span
                       className={`font-semibold ${
                         b.orderCount > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-slate-400"
@@ -422,7 +594,7 @@ export default function BusinessListClient({
                     </span>{" "}
                     <span className="text-xs text-slate-500 dark:text-slate-400">orders</span>
                   </td>
-                  <td className="px-4 py-3.5 text-right">
+                  <td className="px-4 py-3.5 text-right whitespace-nowrap">
                     <div className="inline-flex items-center gap-1.5">
                       <button
                         onClick={() => openEditModal(b)}
@@ -433,7 +605,7 @@ export default function BusinessListClient({
 
                       {b.isActive ? (
                         <button
-                          onClick={() => handleArchive(b.id, b.name)}
+                          onClick={() => setArchivingBusiness(b)}
                           className="px-2.5 py-1 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700/80 rounded-md text-xs font-medium transition-all shadow-sm"
                           title="Archive business (preserves order history)"
                         >
@@ -449,11 +621,11 @@ export default function BusinessListClient({
                       )}
 
                       <button
-                        onClick={() => handleDelete(b.id, b.name)}
+                        onClick={() => setDeletingBusiness(b)}
                         className="px-2.5 py-1 bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30 rounded-md text-xs font-medium transition-all"
                         title={
                           b.orderCount > 0
-                            ? "Hard delete restricted: has linked orders. Use Archive instead."
+                            ? "Has linked orders. Delete modal will offer safe archive option."
                             : "Permanently delete business"
                         }
                       >
@@ -515,25 +687,21 @@ export default function BusinessListClient({
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700 dark:text-slate-300">Area / Locality</label>
-                <input
-                  type="text"
-                  value={formArea}
-                  onChange={(e) => setFormArea(e.target.value)}
-                  placeholder="e.g. Dhanmondi, Uttara"
-                  className="w-full px-3.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 shadow-sm"
-                />
-              </div>
-
-              <div className="space-y-1">
                 <label className="text-xs font-medium text-slate-700 dark:text-slate-300">District</label>
-                <input
-                  type="text"
+                <select
                   value={formDistrict}
                   onChange={(e) => setFormDistrict(e.target.value)}
-                  placeholder="e.g. Dhaka, Chittagong"
-                  className="w-full px-3.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 shadow-sm"
-                />
+                  className="w-full px-3.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 shadow-sm cursor-pointer"
+                >
+                  <option value="" disabled>
+                    — Select a district —
+                  </option>
+                  {BANGLADESH_DISTRICTS.map((d) => (
+                    <option key={d.name} value={d.name}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="space-y-1">
@@ -558,37 +726,137 @@ export default function BusinessListClient({
                 />
               </div>
 
+              {/* ── 1. Physical / Invoice Address ──────────────────────────── */}
               <div className="md:col-span-2 space-y-1">
-                <label className="text-xs font-medium text-slate-700 dark:text-slate-300">Street Address</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Physical Address / Location (সাধারণ ঠিকানা) *
+                  </label>
+                  <span className="text-[11px] font-medium text-slate-400">
+                    ইনভয়েস ও কাস্টমার ঠিকানা
+                  </span>
+                </div>
                 <input
                   type="text"
                   value={formAddress}
                   onChange={(e) => setFormAddress(e.target.value)}
-                  placeholder="e.g. House 15, Road 2, Dhanmondi"
+                  placeholder="e.g. Dania Road, Shoni Akhra, Dhaka (বা দোকান নং, রোড)"
                   className="w-full px-3.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 shadow-sm"
                 />
               </div>
 
+              {/* ── 2. Map Pin & GPS Search (with Live Autocomplete) ──────────── */}
+              <div ref={addressContainerRef} className="md:col-span-2 space-y-2 relative p-3 rounded-xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/60">
+                <div className="flex items-center justify-between gap-2">
+                  <label className="text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                    <MapPin className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                    <span>Map Pin Search (ম্যাপ লোকেশন ও পিন)</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleAutoGeocode}
+                    disabled={isGeocoding}
+                    title="Auto-detect coordinates using Business Name & Physical Address"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-100/70 dark:bg-blue-500/10 hover:bg-blue-200/70 dark:hover:bg-blue-500/20 border border-blue-200 dark:border-blue-500/20 transition-all disabled:opacity-50 cursor-pointer shrink-0"
+                  >
+                    <MapPin className="w-3 h-3" />
+                    {isGeocoding ? "Detecting..." : "Auto-Detect from Name & Address"}
+                  </button>
+                </div>
+
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={formMapQuery}
+                    onChange={(e) => {
+                      setFormMapQuery(e.target.value);
+                      setShowAddressSuggestions(true);
+                    }}
+                    onFocus={() => {
+                      if (addressSuggestions.length > 0) setShowAddressSuggestions(true);
+                    }}
+                    placeholder="Search landmark or place on map (e.g. Pizza Burg, Dania Road, Dhaka)"
+                    className="w-full px-3.5 py-2 pr-9 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 shadow-sm"
+                  />
+                  {isSearchingAddress && (
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                      <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
+                    </div>
+                  )}
+                </div>
+
+                {/* Autocomplete Dropdown */}
+                {showAddressSuggestions && addressSuggestions.length > 0 && (
+                  <div className="absolute left-3 right-3 top-full mt-1 z-50 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl overflow-hidden max-h-56 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                    <div className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800/80 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      Suggested Map Locations (Click to set GPS Pin)
+                    </div>
+                    {addressSuggestions.map((item, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => handleSelectSuggestion(item)}
+                        className="w-full px-3.5 py-2.5 text-left hover:bg-blue-50/80 dark:hover:bg-blue-950/40 transition-colors flex items-start gap-2.5 group cursor-pointer"
+                      >
+                        <MapPin className="w-4 h-4 text-blue-500 shrink-0 mt-0.5 group-hover:scale-110 transition-transform" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-slate-800 dark:text-slate-100 truncate">
+                            {item.formatted}
+                          </p>
+                          <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                            {item.district && (
+                              <span className="font-semibold text-blue-600 dark:text-blue-400">
+                                District: {item.district}
+                              </span>
+                            )}
+                            {item.area && item.area !== item.district && (
+                              <span>• Area: {item.area}</span>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {geocodeFeedback && (
+                  <div
+                    className={`p-2 rounded-lg text-xs font-medium border flex items-center gap-2 mt-1.5 ${
+                      geocodeFeedback.success
+                        ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20"
+                        : "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/20"
+                    }`}
+                  >
+                    {geocodeFeedback.success ? (
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                    ) : (
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                    )}
+                    <span>{geocodeFeedback.text}</span>
+                  </div>
+                )}
+              </div>
+
               <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700 dark:text-slate-300">Latitude (optional)</label>
+                <label className="text-xs font-medium text-slate-700 dark:text-slate-300">Latitude (GPS)</label>
                 <input
                   type="number"
                   step="any"
                   value={formLat}
                   onChange={(e) => setFormLat(e.target.value)}
-                  placeholder="e.g. 23.740510"
+                  placeholder="e.g. 23.740510 (auto-filled)"
                   className="w-full px-3.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 shadow-sm"
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700 dark:text-slate-300">Longitude (optional)</label>
+                <label className="text-xs font-medium text-slate-700 dark:text-slate-300">Longitude (GPS)</label>
                 <input
                   type="number"
                   step="any"
                   value={formLng}
                   onChange={(e) => setFormLng(e.target.value)}
-                  placeholder="e.g. 90.384620"
+                  placeholder="e.g. 90.384620 (auto-filled)"
                   className="w-full px-3.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 shadow-sm"
                 />
               </div>
@@ -607,6 +875,106 @@ export default function BusinessListClient({
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-semibold shadow-md shadow-blue-600/30 transition-all disabled:opacity-50"
               >
                 {isPending ? "Saving…" : editingBusiness ? "Update Business" : "Create Business"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete Confirmation Modal ─────────────────────────────────────── */}
+      {deletingBusiness && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xl space-y-5 text-slate-900 dark:text-slate-100">
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Delete Business
+                </h3>
+                <p className="text-sm text-slate-600 dark:text-slate-300">
+                  Are you sure you want to permanently delete <strong className="text-slate-900 dark:text-white font-semibold">"{deletingBusiness.name}"</strong>?
+                </p>
+              </div>
+            </div>
+
+            {deletingBusiness.orderCount > 0 ? (
+              <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 text-xs text-rose-700 dark:text-rose-300 space-y-1.5">
+                <div className="flex items-center gap-1.5 font-bold text-rose-800 dark:text-rose-200">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>Warning: Has {deletingBusiness.orderCount} Recorded Order(s)</span>
+                </div>
+                <p className="leading-relaxed">
+                  Deleting this business will permanently remove it along with all {deletingBusiness.orderCount} associated order(s) and invoices from the database. This action cannot be undone.
+                </p>
+              </div>
+            ) : (
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 text-xs text-slate-600 dark:text-slate-300">
+                This action cannot be undone. This business record will be permanently deleted from the database.
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setDeletingBusiness(null)}
+                className="px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={confirmDeleteAction}
+                className="px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-rose-600 hover:bg-rose-700 text-white shadow-md shadow-rose-600/25 transition-all disabled:opacity-50"
+              >
+                {isPending ? "Deleting..." : "Delete Permanently"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Archive Confirmation Modal ─────────────────────────────────────── */}
+      {archivingBusiness && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xl space-y-5 text-slate-900 dark:text-slate-100">
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                <ArchiveIcon className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Archive Business
+                </h3>
+                <p className="text-sm text-slate-600 dark:text-slate-300">
+                  Are you sure you want to archive <strong className="text-slate-900 dark:text-white font-semibold">"{archivingBusiness.name}"</strong>?
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 space-y-1.5 leading-relaxed">
+              Archiving hides this business from active client directories and maps. All historical orders ({archivingBusiness.orderCount}) and financial records remain safe, and you can restore it at any time using the <strong>"Show Archived"</strong> filter.
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setArchivingBusiness(null)}
+                className="px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={confirmArchiveAction}
+                className="px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-amber-500 hover:bg-amber-600 text-white shadow-md shadow-amber-500/25 transition-all disabled:opacity-50"
+              >
+                {isPending ? "Archiving..." : "Archive Business"}
               </button>
             </div>
           </div>

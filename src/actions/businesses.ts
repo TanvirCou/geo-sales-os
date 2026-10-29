@@ -3,6 +3,8 @@
 import { db } from "@/lib/db";
 import { requireAuth } from "./auth";
 import { revalidatePath } from "next/cache";
+import { geocodeLocation } from "./import";
+import { extractDistrictFromText } from "@/lib/district-resolver";
 
 export interface BusinessInput {
   name: string;
@@ -60,40 +62,87 @@ export async function getBusinesses(params?: {
     ];
   }
 
-  if (orderColor === "GREEN") {
-    whereClause.orders = { some: {} };
-  } else if (orderColor === "RED") {
+  // Core business rule: Client business directory only lists businesses with recorded orders (orderCount >= 1)
+  if (orderColor === "RED") {
     whereClause.orders = { none: {} };
+  } else {
+    whereClause.orders = { some: {} };
   }
 
   const businesses = await db.business.findMany({
     where: whereClause,
-    orderBy: { createdAt: "desc" },
     include: {
       _count: {
         select: { orders: true },
       },
+      orders: {
+        orderBy: [
+          { orderedAt: { sort: "desc", nulls: "last" } },
+          { createdAt: "desc" },
+        ],
+        take: 1,
+        select: {
+          orderedAt: true,
+          createdAt: true,
+        },
+      },
     },
   });
 
-  return businesses.map((b) => ({
-    id: b.id,
-    name: b.name,
-    category: b.category,
-    area: b.area,
-    district: b.district,
-    contactName: b.contactName,
-    phoneRaw: b.phoneRaw,
-    phoneNormalized: b.phoneNormalized,
-    address: b.address,
-    latitude: b.latitude ? Number(b.latitude) : null,
-    longitude: b.longitude ? Number(b.longitude) : null,
-    coordinateSource: b.coordinateSource,
-    isActive: b.isActive,
-    orderCount: b._count.orders,
-    isGreen: b._count.orders > 0, // Master rule: Orders >= 1 -> GREEN, Orders = 0 -> RED
-    createdAt: b.createdAt.toISOString(),
-  }));
+  const mapped = businesses.map((b) => {
+    const latestOrder = b.orders?.[0];
+    const latestOrderDate = latestOrder?.orderedAt ? new Date(latestOrder.orderedAt) : null;
+    const latestOrderTime = latestOrderDate && !isNaN(latestOrderDate.getTime()) ? latestOrderDate.getTime() : null;
+
+    return {
+      id: b.id,
+      name: b.name,
+      category: b.category,
+      area: b.area,
+      district: b.district,
+      contactName: b.contactName,
+      phoneRaw: b.phoneRaw,
+      phoneNormalized: b.phoneNormalized,
+      address: b.address,
+      latitude: b.latitude ? Number(b.latitude) : null,
+      longitude: b.longitude ? Number(b.longitude) : null,
+      coordinateSource: b.coordinateSource,
+      isActive: b.isActive,
+      orderCount: b._count.orders,
+      isGreen: b._count.orders > 0, // Master rule: Orders >= 1 -> GREEN, Orders = 0 -> RED
+      createdAt: b.createdAt.toISOString(),
+      latestOrderTime,
+    };
+  });
+
+  // Business sorting rule:
+  // 1. Businesses with real order dates are sorted descending (latest order date at the very top).
+  // 2. Businesses whose orders have NO date (null) are pushed to the very end.
+  // 3. Among businesses with no order date, sort by business creation date descending.
+  mapped.sort((a, b) => {
+    // Both have real order dates -> newest order date first
+    if (a.latestOrderTime !== null && b.latestOrderTime !== null) {
+      if (b.latestOrderTime !== a.latestOrderTime) {
+        return b.latestOrderTime - a.latestOrderTime;
+      }
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    }
+
+    // 'a' has date, 'b' has no date -> 'a' comes first (b goes to end)
+    if (a.latestOrderTime !== null && b.latestOrderTime === null) {
+      return -1;
+    }
+
+    // 'a' has no date, 'b' has date -> 'b' comes first (a goes to end)
+    if (a.latestOrderTime === null && b.latestOrderTime !== null) {
+      return 1;
+    }
+
+    // Neither has an order date -> both at the end, newest business first
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
+
+  return mapped;
 }
 
 export async function getBusiness(id: string) {
@@ -104,7 +153,10 @@ export async function getBusiness(id: string) {
     include: {
       _count: { select: { orders: true } },
       orders: {
-        orderBy: { orderedAt: "desc" },
+        orderBy: [
+          { orderedAt: { sort: "desc", nulls: "last" } },
+          { createdAt: "desc" },
+        ],
         include: {
           items: {
             select: {
@@ -131,7 +183,7 @@ export async function getBusiness(id: string) {
     orders: business.orders.map((o) => ({
       id: o.id,
       externalOrderId: o.externalOrderId,
-      orderedAt: o.orderedAt.toISOString(),
+      orderedAt: o.orderedAt?.toISOString() ?? null,
       status: o.status,
       source: o.source,
       items: o.items.map((i) => ({
@@ -141,12 +193,198 @@ export async function getBusiness(id: string) {
         unitPriceBdt: Number(i.unitPriceBdt),
         totalBdt: Number(i.quantity) * Number(i.unitPriceBdt),
       })),
-      totalBdt: o.items.reduce(
-        (sum, item) => sum + Number(item.quantity) * Number(item.unitPriceBdt),
-        0
-      ),
+      totalBdt:
+        o.totalAmountBdt != null && Number(o.totalAmountBdt) > 0
+          ? Number(o.totalAmountBdt)
+          : o.items.length > 0
+          ? o.items.reduce(
+              (sum, item) => sum + Number(item.quantity) * Number(item.unitPriceBdt),
+              0
+            )
+          : null,
     })),
   };
+}
+
+export interface GeocodeAddressActionResult {
+  success: boolean;
+  latitude?: number;
+  longitude?: number;
+  formattedAddress?: string;
+  resolvedDistrict?: string | null;
+  error?: string;
+}
+
+export async function geocodeAddressAction(
+  businessName: string,
+  location: string
+): Promise<GeocodeAddressActionResult> {
+  await requireAuth();
+  if (!location || !location.trim()) {
+    return { success: false, error: "Please enter an address or area to search." };
+  }
+  const result = await geocodeLocation(businessName, location);
+  let resolvedDistrict: string | null = null;
+  if (result.success && result.formattedAddress) {
+    resolvedDistrict = extractDistrictFromText(result.formattedAddress);
+  } else if (location) {
+    resolvedDistrict = extractDistrictFromText(location);
+  }
+  return {
+    success: result.success,
+    latitude: result.latitude,
+    longitude: result.longitude,
+    formattedAddress: result.formattedAddress,
+    resolvedDistrict,
+    error: result.error,
+  };
+}
+
+export interface AutocompleteSuggestion {
+  formatted: string;
+  area: string;
+  district: string;
+  latitude: number;
+  longitude: number;
+}
+
+export async function searchAddressAutocomplete(
+  query: string,
+  multiQuery = false
+): Promise<AutocompleteSuggestion[]> {
+  await requireAuth();
+  if (!query || query.trim().length < 2) return [];
+
+  const apiKey =
+    process.env.GEOAPIFY_SERVER_API_KEY ||
+    process.env.NEXT_PUBLIC_GEOAPIFY_API_KEY;
+
+  if (!apiKey) return [];
+
+  try {
+    const trimmed = query.trim();
+    // Always normalize commas → spaces for the base query
+    const fullNormalized = trimmed.replace(/,+/g, " ").replace(/\s+/g, " ");
+
+    // Score helper — used to re-rank results by how many query terms match
+    const queryTerms = fullNormalized
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((t) => t.length > 1);
+
+    const scoreResult = (formatted: string): number => {
+      const lower = formatted.toLowerCase();
+      return queryTerms.reduce((acc, term) => acc + (lower.includes(term) ? 1 : 0), 0);
+    };
+
+    const parseFeatures = (features: any[]): AutocompleteSuggestion[] =>
+      features
+        .map((f: any) => {
+          const p = f.properties || {};
+          const [lon, lat] = f.geometry?.coordinates || [p.lon, p.lat];
+          const detectedDistrict =
+            extractDistrictFromText(
+              [p.formatted, p.city, p.county, p.state].filter(Boolean).join(" ")
+            ) || "Dhaka";
+          const detectedArea =
+            p.suburb || p.neighbourhood || p.quarter ||
+            p.district || p.city || p.street || "";
+          return {
+            formatted: p.formatted as string,
+            area: detectedArea as string,
+            district: detectedDistrict,
+            latitude: Number(lat),
+            longitude: Number(lon),
+          };
+        })
+        .filter(
+          (item: any) =>
+            item.formatted && !isNaN(item.latitude) && !isNaN(item.longitude)
+        );
+
+    const makeUrl = (q: string, limit = 7) =>
+      `https://api.geoapify.com/v1/geocode/autocomplete?text=${encodeURIComponent(q)}&filter=countrycode:bd&limit=${limit}&apiKey=${apiKey}`;
+
+    // ── FAST MODE (live dropdown): single optimised query ─────────────────────
+    // Best query: if comma present use "name area" (road suffix stripped),
+    // otherwise use the full normalized text. One API call → ~300 ms.
+    if (!multiQuery) {
+      let bestQuery = fullNormalized;
+      if (trimmed.includes(",")) {
+        const parts = trimmed.split(",").map((s) => s.trim());
+        const poiName = parts[0];
+        const areaStripped = parts
+          .slice(1)
+          .join(" ")
+          .replace(/\b(road|rd|lane|ln|avenue|ave|street|st|sarani)\b/gi, "")
+          .replace(/\s+/g, " ")
+          .trim();
+        if (areaStripped) bestQuery = `${poiName} ${areaStripped}`;
+      } else {
+        const stripped = fullNormalized
+          .replace(/\b(road|rd|lane|ln|avenue|ave|street|st|sarani)\b/gi, "")
+          .replace(/\s+/g, " ")
+          .trim();
+        if (stripped && stripped !== fullNormalized) {
+          bestQuery = stripped;
+        }
+      }
+
+      const res = await fetch(makeUrl(bestQuery, 8), { cache: "no-store" });
+      if (!res.ok) return [];
+      const data = await res.json();
+      if (!data.features) return [];
+      const items = parseFeatures(data.features);
+      items.sort((a, b) => scoreResult(b.formatted) - scoreResult(a.formatted));
+      return items.slice(0, 7);
+    }
+
+    // ── MULTI-QUERY MODE (Auto-Detect button): parallel queries, best ranking ──
+    const querySet = new Set<string>([fullNormalized]);
+    if (trimmed.includes(",")) {
+      const parts = trimmed.split(",").map((s) => s.trim());
+      const poiName = parts[0];
+      const areaRaw = parts.slice(1).join(" ").trim();
+      const areaStripped = areaRaw
+        .replace(/\b(road|rd|lane|ln|avenue|ave|street|st|sarani)\b/gi, "")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (areaStripped) querySet.add(`${poiName} ${areaStripped}`);
+      if (poiName) querySet.add(poiName);
+    } else {
+      const stripped = fullNormalized
+        .replace(/\b(road|rd|lane|ln|avenue|ave|street|st|sarani)\b/gi, "")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (stripped && stripped !== fullNormalized) {
+        querySet.add(stripped);
+      }
+    }
+
+    const responses = await Promise.all(
+      [...querySet].map((q) => fetch(makeUrl(q, 6), { cache: "no-store" }))
+    );
+
+    const allFeatures: AutocompleteSuggestion[] = [];
+    const seen = new Set<string>();
+    for (const res of responses) {
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (!data.features) continue;
+      for (const item of parseFeatures(data.features)) {
+        if (!seen.has(item.formatted)) {
+          seen.add(item.formatted);
+          allFeatures.push(item);
+        }
+      }
+    }
+    allFeatures.sort((a, b) => scoreResult(b.formatted) - scoreResult(a.formatted));
+    return allFeatures.slice(0, 7);
+
+  } catch (err) {
+    console.error("Autocomplete error:", err);
+    return [];
+  }
 }
 
 export async function createBusiness(data: BusinessInput) {
@@ -160,20 +398,45 @@ export async function createBusiness(data: BusinessInput) {
     ? data.phoneRaw.replace(/\D/g, "")
     : null;
 
+  let latitude = data.latitude != null ? data.latitude : null;
+  let longitude = data.longitude != null ? data.longitude : null;
+  let formattedAddress = data.address?.trim() || null;
+  let resolvedDistrict = data.district?.trim() || null;
+
+  // Auto-geocode if coordinates were not provided manually
+  if ((latitude == null || longitude == null) && (data.address || data.area)) {
+    const locText = [data.address, data.area].filter(Boolean).join(", ");
+    const geo = await geocodeLocation(data.name, locText);
+    if (geo.success && geo.latitude && geo.longitude) {
+      latitude = geo.latitude;
+      longitude = geo.longitude;
+      if (geo.formattedAddress && !data.address?.trim()) {
+        formattedAddress = geo.formattedAddress;
+      }
+    }
+  }
+
+  // Auto-resolve district if missing or generic
+  if (!resolvedDistrict || resolvedDistrict === "Dhaka") {
+    resolvedDistrict = extractDistrictFromText(
+      [formattedAddress, data.address, data.area].filter(Boolean).join(" ")
+    );
+  }
+
   try {
     const business = await db.business.create({
       data: {
         name: data.name.trim(),
         category: data.category?.trim() || null,
         area: data.area?.trim() || null,
-        district: data.district?.trim() || null,
+        district: resolvedDistrict,
         contactName: data.contactName?.trim() || null,
         phoneRaw: data.phoneRaw?.trim() || null,
         phoneNormalized,
-        address: data.address?.trim() || null,
-        latitude: data.latitude != null ? data.latitude : null,
-        longitude: data.longitude != null ? data.longitude : null,
-        coordinateSource: data.latitude != null ? "manual_verified" : null,
+        address: formattedAddress || data.address?.trim() || null,
+        latitude,
+        longitude,
+        coordinateSource: latitude != null ? "geoapify_verified" : null,
         isActive: true,
       },
     });
@@ -200,6 +463,30 @@ export async function updateBusiness(id: string, data: BusinessInput) {
     ? data.phoneRaw.replace(/\D/g, "")
     : null;
 
+  let latitude = data.latitude != null ? data.latitude : null;
+  let longitude = data.longitude != null ? data.longitude : null;
+  let formattedAddress = data.address?.trim() || null;
+  let resolvedDistrict = data.district?.trim() || null;
+
+  // Auto-geocode if coordinates were not provided manually
+  if ((latitude == null || longitude == null) && (data.address || data.area)) {
+    const locText = [data.address, data.area].filter(Boolean).join(", ");
+    const geo = await geocodeLocation(data.name, locText);
+    if (geo.success && geo.latitude && geo.longitude) {
+      latitude = geo.latitude;
+      longitude = geo.longitude;
+      if (geo.formattedAddress && !data.address?.trim()) {
+        formattedAddress = geo.formattedAddress;
+      }
+    }
+  }
+
+  if (!resolvedDistrict || resolvedDistrict === "Dhaka") {
+    resolvedDistrict = extractDistrictFromText(
+      [formattedAddress, data.address, data.area].filter(Boolean).join(" ")
+    );
+  }
+
   try {
     await db.business.update({
       where: { id },
@@ -207,14 +494,14 @@ export async function updateBusiness(id: string, data: BusinessInput) {
         name: data.name.trim(),
         category: data.category?.trim() || null,
         area: data.area?.trim() || null,
-        district: data.district?.trim() || null,
+        district: resolvedDistrict,
         contactName: data.contactName?.trim() || null,
         phoneRaw: data.phoneRaw?.trim() || null,
         phoneNormalized,
-        address: data.address?.trim() || null,
-        latitude: data.latitude != null ? data.latitude : null,
-        longitude: data.longitude != null ? data.longitude : null,
-        coordinateSource: data.latitude != null ? "manual_verified" : null,
+        address: formattedAddress || data.address?.trim() || null,
+        latitude,
+        longitude,
+        coordinateSource: latitude != null ? "geoapify_verified" : null,
       },
     });
 
@@ -246,15 +533,16 @@ export async function deleteBusiness(id: string) {
     return { error: "Business not found." };
   }
 
-  if (business._count.orders > 0) {
-    return {
-      error: `Cannot hard delete: this business has ${business._count.orders} order(s). Use Archive instead to preserve order history.`,
-      canArchive: true,
-    };
-  }
-
   try {
-    await db.business.delete({ where: { id } });
+    await db.$transaction(async (tx) => {
+      // Delete any associated orders first
+      await tx.order.deleteMany({
+        where: { businessId: id },
+      });
+      // Delete business
+      await tx.business.delete({ where: { id } });
+    });
+
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/businesses");
     return { success: true };

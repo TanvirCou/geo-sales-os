@@ -136,12 +136,12 @@ export function DashboardSidebar({ adminName = "Admin User" }: { adminName?: str
         </div>
         <div className="flex flex-col">
           <div className="flex items-center gap-1.5">
-            <span className="text-sm font-bold text-slate-900 dark:text-white tracking-tight">BSM Sales</span>
+            <span className="text-sm font-bold text-slate-900 dark:text-white tracking-tight">GeoSales OS</span>
             <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
               v1.0
             </span>
           </div>
-          <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Geo-Mapping CRM</span>
+          <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Territory Sales & CRM</span>
         </div>
       </div>
 

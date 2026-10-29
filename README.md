@@ -1,6 +1,6 @@
-# Business Sales & Geo-Mapping Management System
+# GeoSales OS
 
-Production-oriented Next.js application for tracking businesses, products, orders and visualising them on a Bangladesh map.
+Next-generation Geospatial Sales Management & Territory Intelligence Operating System for tracking businesses, products, orders, and courier logistics across Bangladesh.
 
 ## Quick Start
 

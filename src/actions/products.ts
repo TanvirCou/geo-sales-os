@@ -8,7 +8,7 @@ export interface ProductInput {
   name: string;
   sku?: string;
   unit?: string;
-  priceBdt: number;
+  priceBdt?: number | null;
 }
 
 export async function getProducts(params?: { q?: string; isActive?: boolean }) {
@@ -41,7 +41,7 @@ export async function getProducts(params?: { q?: string; isActive?: boolean }) {
     name: p.name,
     sku: p.sku,
     unit: p.unit,
-    priceBdt: Number(p.priceBdt),
+    priceBdt: p.priceBdt != null ? Number(p.priceBdt) : null,
     isActive: p.isActive,
     orderItemCount: p._count.orderItems,
     createdAt: p.createdAt.toISOString(),
@@ -54,8 +54,8 @@ export async function createProduct(data: ProductInput) {
   if (!data.name || data.name.trim().length === 0) {
     return { error: "Product name is required." };
   }
-  if (data.priceBdt == null || isNaN(data.priceBdt) || data.priceBdt < 0) {
-    return { error: "Price must be a non-negative number." };
+  if (data.priceBdt != null && (isNaN(data.priceBdt) || data.priceBdt < 0)) {
+    return { error: "Price must be a non-negative number if provided." };
   }
 
   try {
@@ -64,7 +64,7 @@ export async function createProduct(data: ProductInput) {
         name: data.name.trim(),
         sku: data.sku?.trim() || null,
         unit: data.unit?.trim() || null,
-        priceBdt: data.priceBdt,
+        priceBdt: data.priceBdt != null ? data.priceBdt : null,
         isActive: true,
       },
     });
@@ -83,8 +83,8 @@ export async function updateProduct(id: string, data: ProductInput) {
   if (!data.name || data.name.trim().length === 0) {
     return { error: "Product name is required." };
   }
-  if (data.priceBdt == null || isNaN(data.priceBdt) || data.priceBdt < 0) {
-    return { error: "Price must be a non-negative number." };
+  if (data.priceBdt != null && (isNaN(data.priceBdt) || data.priceBdt < 0)) {
+    return { error: "Price must be a non-negative number if provided." };
   }
 
   try {
@@ -94,7 +94,7 @@ export async function updateProduct(id: string, data: ProductInput) {
         name: data.name.trim(),
         sku: data.sku?.trim() || null,
         unit: data.unit?.trim() || null,
-        priceBdt: data.priceBdt,
+        priceBdt: data.priceBdt != null ? data.priceBdt : null,
       },
     });
 

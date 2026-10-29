@@ -16,7 +16,7 @@ interface ProductItem {
   id: string;
   name: string;
   sku: string | null;
-  priceBdt: number;
+  priceBdt: number | null;
   unit: string | null;
   isActive: boolean;
   orderItemCount: number;
@@ -40,7 +40,6 @@ export default function ProductListClient({
   const [editingProduct, setEditingProduct] = useState<ProductItem | null>(null);
   const [formName, setFormName] = useState("");
   const [formSku, setFormSku] = useState("");
-  const [formPrice, setFormPrice] = useState("");
   const [formUnit, setFormUnit] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -52,7 +51,6 @@ export default function ProductListClient({
     setEditingProduct(null);
     setFormName("");
     setFormSku("");
-    setFormPrice("");
     setFormUnit("");
     setFormError(null);
     setIsModalOpen(true);
@@ -62,7 +60,6 @@ export default function ProductListClient({
     setEditingProduct(p);
     setFormName(p.name);
     setFormSku(p.sku || "");
-    setFormPrice(String(p.priceBdt));
     setFormUnit(p.unit || "");
     setFormError(null);
     setIsModalOpen(true);
@@ -73,17 +70,12 @@ export default function ProductListClient({
       setFormError("Product name is required.");
       return;
     }
-    const priceNum = parseFloat(formPrice);
-    if (isNaN(priceNum) || priceNum < 0) {
-      setFormError("Valid non-negative price is required.");
-      return;
-    }
 
     const payload: ProductInput = {
       name: formName.trim(),
       sku: formSku.trim() || undefined,
-      priceBdt: priceNum,
       unit: formUnit.trim() || undefined,
+      priceBdt: null,
     };
 
     startTransition(async () => {
@@ -235,7 +227,6 @@ export default function ProductListClient({
               <th className="px-5 py-3.5">Product Name</th>
               <th className="px-5 py-3.5">SKU</th>
               <th className="px-5 py-3.5">Unit</th>
-              <th className="px-5 py-3.5 text-right">Catalog Price (BDT)</th>
               <th className="px-5 py-3.5">Status</th>
               <th className="px-5 py-3.5">Referenced in Orders</th>
               <th className="px-5 py-3.5 text-right">Actions</th>
@@ -244,7 +235,7 @@ export default function ProductListClient({
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
             {paginatedProducts.length === 0 ? (
               <tr>
-                <td colSpan={7} className="text-center py-12 text-slate-400 dark:text-slate-500 font-medium">
+                <td colSpan={6} className="text-center py-12 text-slate-400 dark:text-slate-500 font-medium">
                   No products found.
                 </td>
               </tr>
@@ -257,10 +248,7 @@ export default function ProductListClient({
                       {p.sku || "—"}
                     </code>
                   </td>
-                  <td className="px-5 py-3.5 text-slate-600 dark:text-slate-300">{p.unit || "Unit"}</td>
-                  <td className="px-5 py-3.5 text-right font-semibold text-slate-900 dark:text-white font-mono text-xs tabular-nums">
-                    BDT {p.priceBdt.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                  </td>
+                  <td className="px-5 py-3.5 text-slate-600 dark:text-slate-300">{p.unit || "Pcs"}</td>
                   <td className="px-5 py-3.5">
                     <span
                       className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium border ${
@@ -376,22 +364,10 @@ export default function ProductListClient({
                     type="text"
                     value={formUnit}
                     onChange={(e) => setFormUnit(e.target.value)}
-                    placeholder="e.g. Bottle, Bag"
+                    placeholder="e.g. Pcs, Box, Sheet"
                     className="w-full px-3.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 shadow-sm"
                   />
                 </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700 dark:text-slate-300">Price in BDT *</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={formPrice}
-                  onChange={(e) => setFormPrice(e.target.value)}
-                  placeholder="e.g. 320.00"
-                  className="w-full px-3.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 font-mono shadow-sm"
-                />
               </div>
             </div>
 

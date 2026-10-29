@@ -64,7 +64,7 @@ export async function getDashboardKPIs() {
       externalOrderId: o.externalOrderId,
       businessName: o.business.name,
       businessArea: o.business.area || o.business.district || "Unspecified",
-      orderedAt: o.orderedAt.toISOString(),
+      orderedAt: o.orderedAt?.toISOString() ?? null,
       status: o.status,
       itemCount: o.items.length,
       totalBdt: o.items.reduce(

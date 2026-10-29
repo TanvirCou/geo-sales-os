@@ -30,10 +30,10 @@ export function TopNavbar() {
         {/* Mobile Mini Logo Badge */}
         <div className="flex lg:hidden items-center gap-2 shrink-0">
           <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-xs shadow-sm shadow-blue-600/30">
-            B
+            G
           </div>
           <span className="font-bold text-sm tracking-tight text-slate-900 dark:text-white">
-            BSM Sales
+            GeoSales OS
           </span>
         </div>
 

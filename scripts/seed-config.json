@@ -1,0 +1,298 @@
+{
+  "products": [
+    {
+      "name": "Menu Book",
+      "sku": "PRD-MNU-BK",
+      "unit": "Pcs"
+    },
+    {
+      "name": "Menu Card",
+      "sku": "PRD-MNU-CRD",
+      "unit": "Pcs"
+    },
+    {
+      "name": "Bill Fold",
+      "sku": "PRD-BIL-FLD",
+      "unit": "Pcs"
+    },
+    {
+      "name": "Membership Card",
+      "sku": "PRD-MBR-CRD",
+      "unit": "Pcs"
+    },
+    {
+      "name": "Visiting Card",
+      "sku": "PRD-VIS-CRD",
+      "unit": "Box"
+    },
+    {
+      "name": "Liflet",
+      "sku": "PRD-LIF-LET",
+      "unit": "Pcs"
+    },
+    {
+      "name": "X-banner",
+      "sku": "PRD-XBN-STD",
+      "unit": "Pcs"
+    },
+    {
+      "name": "Sticker",
+      "sku": "PRD-STK-SHT",
+      "unit": "Pcs"
+    }
+  ],
+  "businesses": [
+    {
+      "name": "Star Kabab Restaurant",
+      "category": "Restaurant",
+      "area": "Dhanmondi",
+      "district": "Dhaka",
+      "contactName": "Mirza Kabir",
+      "phoneRaw": "01711-223344",
+      "phoneNormalized": "01711223344",
+      "address": "Road 2, Dhanmondi",
+      "latitude": 23.74051,
+      "longitude": 90.38462
+    },
+    {
+      "name": "Cafe Bistro 27",
+      "category": "Cafe",
+      "area": "Dhanmondi",
+      "district": "Dhaka",
+      "contactName": "Rezaul Karim",
+      "phoneRaw": "01819-334455",
+      "phoneNormalized": "01819334455",
+      "address": "Road 27, Dhanmondi",
+      "latitude": 23.75382,
+      "longitude": 90.37254
+    },
+    {
+      "name": "Dhanmondi Beauty Lounge",
+      "category": "Beauty Parlour",
+      "area": "Dhanmondi",
+      "district": "Dhaka",
+      "contactName": "Nusrat Jahan",
+      "phoneRaw": "01755-667788",
+      "phoneNormalized": "01755667788",
+      "address": "Road 8A, Dhanmondi",
+      "latitude": 23.74712,
+      "longitude": 90.37493
+    },
+    {
+      "name": "Spice Garden Restaurant",
+      "category": "Restaurant",
+      "area": "Dhanmondi",
+      "district": "Dhaka",
+      "contactName": "Faruk Hossain",
+      "phoneRaw": "01912-345678",
+      "phoneNormalized": "01912345678",
+      "address": "Mirpur Road, Dhanmondi",
+      "latitude": 23.73911,
+      "longitude": 90.38382
+    },
+    {
+      "name": "Gloria Jeans Coffees Gulshan",
+      "category": "Cafe",
+      "area": "Gulshan",
+      "district": "Dhaka",
+      "contactName": "Ashrafuzzaman",
+      "phoneRaw": "01713-998877",
+      "phoneNormalized": "01713998877",
+      "address": "Navana Tower, Gulshan 1",
+      "latitude": 23.77793,
+      "longitude": 90.41682
+    },
+    {
+      "name": "Radisson Blu Dhaka",
+      "category": "Hotel",
+      "area": "Gulshan",
+      "district": "Dhaka",
+      "contactName": "Procurement Manager",
+      "phoneRaw": "01730-112233",
+      "phoneNormalized": "01730112233",
+      "address": "Gulshan 2 Circle",
+      "latitude": 23.7925,
+      "longitude": 90.4152
+    },
+    {
+      "name": "Banani Gourmet Club",
+      "category": "Restaurant",
+      "area": "Banani",
+      "district": "Dhaka",
+      "contactName": "Zahid Hasan",
+      "phoneRaw": "01822-445566",
+      "phoneNormalized": "01822445566",
+      "address": "Road 11, Banani",
+      "latitude": 23.79371,
+      "longitude": 90.40489
+    },
+    {
+      "name": "Glam Studio Banani",
+      "category": "Beauty Parlour",
+      "area": "Banani",
+      "district": "Dhaka",
+      "contactName": "Sharmin Akter",
+      "phoneRaw": "01933-556677",
+      "phoneNormalized": "01933556677",
+      "address": "Road 17, Banani",
+      "latitude": 23.7951,
+      "longitude": 90.4032
+    },
+    {
+      "name": "Sultans Dine Uttara",
+      "category": "Restaurant",
+      "area": "Uttara",
+      "district": "Dhaka",
+      "contactName": "Manager Kamrul",
+      "phoneRaw": "01977-889900",
+      "phoneNormalized": "01977889900",
+      "address": "Sector 3, Uttara",
+      "latitude": 23.8612,
+      "longitude": 90.3984
+    },
+    {
+      "name": "Uttara Grand Hotel",
+      "category": "Hotel",
+      "area": "Uttara",
+      "district": "Dhaka",
+      "contactName": "Nazmul Huda",
+      "phoneRaw": "01714-556677",
+      "phoneNormalized": "01714556677",
+      "address": "Sector 11, Uttara",
+      "latitude": 23.8741,
+      "longitude": 90.3892
+    },
+    {
+      "name": "Quick Bites Fast Food",
+      "category": "Fast Food",
+      "area": "Uttara",
+      "district": "Dhaka",
+      "contactName": "Tariqul Islam",
+      "phoneRaw": "01844-332211",
+      "phoneNormalized": "01844332211",
+      "address": "Sector 7, Uttara",
+      "latitude": 23.8689,
+      "longitude": 90.3976
+    },
+    {
+      "name": "Kasturi Garden Restaurant",
+      "category": "Restaurant",
+      "area": "Mirpur",
+      "district": "Dhaka",
+      "contactName": "Abul Kashem",
+      "phoneRaw": "01720-667788",
+      "phoneNormalized": "01720667788",
+      "address": "Mirpur 10 Roundabout",
+      "latitude": 23.8071,
+      "longitude": 90.3685
+    },
+    {
+      "name": "Pearl Beauty Salon Mirpur",
+      "category": "Beauty Parlour",
+      "area": "Mirpur",
+      "district": "Dhaka",
+      "contactName": "Sumaiya Begum",
+      "phoneRaw": "01911-889977",
+      "phoneNormalized": "01911889977",
+      "address": "Mirpur 1 Shopping Complex",
+      "latitude": 23.7955,
+      "longitude": 90.3541
+    },
+    {
+      "name": "Al-Razzak Restaurant",
+      "category": "Restaurant",
+      "area": "Old Dhaka",
+      "district": "Dhaka",
+      "contactName": "Haji Mohammad Ali",
+      "phoneRaw": "01711-554433",
+      "phoneNormalized": "01711554433",
+      "address": "Nazira Bazar, Old Dhaka",
+      "latitude": 23.7176,
+      "longitude": 90.4042
+    },
+    {
+      "name": "Hotel Al-Mujahid Motijheel",
+      "category": "Hotel",
+      "area": "Motijheel",
+      "district": "Dhaka",
+      "contactName": "Shafiq Ahmed",
+      "phoneRaw": "01817-223311",
+      "phoneNormalized": "01817223311",
+      "address": "Dilkusha CA, Motijheel",
+      "latitude": 23.7298,
+      "longitude": 90.4187
+    },
+    {
+      "name": "Neon Cafe Lounge",
+      "category": "Cafe",
+      "area": "Old Dhaka",
+      "district": "Dhaka",
+      "contactName": "Haji Babul Miah",
+      "phoneRaw": "01715-443322",
+      "phoneNormalized": "01715443322",
+      "address": "Shakhari Bazar, Old Dhaka",
+      "latitude": 23.7142,
+      "longitude": 90.3995
+    },
+    {
+      "name": "Barbeque Tonight Mohakhali",
+      "category": "Restaurant",
+      "area": "Mohakhali",
+      "district": "Dhaka",
+      "contactName": "Habib Rahman",
+      "phoneRaw": "01922-998811",
+      "phoneNormalized": "01922998811",
+      "address": "TB Gate, Mohakhali",
+      "latitude": 23.7782,
+      "longitude": 90.4011
+    },
+    {
+      "name": "Peninsula Chittagong Hotel",
+      "category": "Hotel",
+      "area": "Agrabad",
+      "district": "Chittagong",
+      "contactName": "Anisur Rahman",
+      "phoneRaw": "01819-887766",
+      "phoneNormalized": "01819887766",
+      "address": "Agrabad CA, Chittagong",
+      "latitude": 22.3364,
+      "longitude": 91.8385
+    },
+    {
+      "name": "Chittagong Fast Food Corner",
+      "category": "Fast Food",
+      "area": "Agrabad",
+      "district": "Chittagong",
+      "contactName": "Monirul Islam",
+      "phoneRaw": "01712-778899",
+      "phoneNormalized": "01712778899",
+      "address": "GEC Circle, Chittagong",
+      "latitude": 22.3275,
+      "longitude": 91.8122
+    },
+    {
+      "name": "Horizon Rooftop Restaurant",
+      "category": "Restaurant",
+      "area": "Dhanmondi",
+      "district": "Dhaka",
+      "contactName": "Sadia Afroz",
+      "phoneRaw": "01799-112233",
+      "phoneNormalized": "01799112233",
+      "address": "Dhanmondi unverified",
+      "latitude": null,
+      "longitude": null
+    },
+    {
+      "name": "Bliss Beauty Wellness",
+      "category": "Beauty Parlour",
+      "area": "Tejgaon",
+      "district": "Dhaka",
+      "contactName": "Mizanur Rahman",
+      "phoneRaw": "01888-223344",
+      "phoneNormalized": "01888223344",
+      "address": "Tejgaon pending GPS",
+      "latitude": null,
+      "longitude": null
+    }
+  ]
+}

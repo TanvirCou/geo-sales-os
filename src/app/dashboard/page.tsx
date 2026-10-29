@@ -107,62 +107,6 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* Row 2: Status & Health with Elegant Gradients */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-        {/* Green Accounts */}
-        <div className="rounded-xl border border-emerald-200 dark:border-emerald-500/30 bg-gradient-to-br from-emerald-50 via-white to-white dark:from-emerald-950/30 dark:via-slate-900/60 dark:to-slate-900 p-6 shadow-sm hover:shadow-md transition-all">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-emerald-800 dark:text-emerald-300">Green Businesses</span>
-            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-500/15 text-emerald-800 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30">
-              Orders ≥ 1
-            </span>
-          </div>
-          <div className="mt-4">
-            <div className="text-3xl font-bold text-emerald-600 dark:text-emerald-400 tracking-tight">
-              {kpis.greenBusinesses}
-            </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              Active clients with at least 1 order recorded
-            </p>
-          </div>
-        </div>
-
-        {/* Red Accounts */}
-        <div className="rounded-xl border border-rose-200 dark:border-rose-500/30 bg-gradient-to-br from-rose-50 via-white to-white dark:from-rose-950/30 dark:via-slate-900/60 dark:to-slate-900 p-6 shadow-sm hover:shadow-md transition-all">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-rose-800 dark:text-rose-300">Red Businesses</span>
-            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-500/15 text-rose-800 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30">
-              Orders = 0
-            </span>
-          </div>
-          <div className="mt-4">
-            <div className="text-3xl font-bold text-rose-600 dark:text-rose-400 tracking-tight">
-              {kpis.redBusinesses}
-            </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              Prospect accounts with zero recorded orders
-            </p>
-          </div>
-        </div>
-
-        {/* Needs Location */}
-        <div className="rounded-xl border border-amber-200 dark:border-amber-500/30 bg-gradient-to-br from-amber-50 via-white to-white dark:from-amber-950/30 dark:via-slate-900/60 dark:to-slate-900 p-6 shadow-sm hover:shadow-md transition-all">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-amber-800 dark:text-amber-300">Location Needed</span>
-            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-500/15 text-amber-800 dark:text-amber-400 border border-amber-200 dark:border-amber-500/30">
-              Attention
-            </span>
-          </div>
-          <div className="mt-4">
-            <div className="text-3xl font-bold text-amber-600 dark:text-amber-400 tracking-tight">
-              {kpis.unlocatedBusinesses}
-            </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              Accounts missing GPS coordinates for map pins
-            </p>
-          </div>
-        </div>
-      </div>
 
       {/* Dual Map Comparison Banner */}
       <div className="rounded-xl border border-blue-200/80 dark:border-slate-800 bg-gradient-to-r from-blue-50/70 via-indigo-50/40 to-white dark:from-slate-900 dark:via-slate-900/80 dark:to-blue-950/40 p-6 flex flex-col md:flex-row md:items-center justify-between gap-6 shadow-sm">
@@ -272,7 +216,7 @@ export default async function DashboardPage() {
                       BDT {order.totalBdt.toLocaleString("en-US", { minimumFractionDigits: 2 })}
                     </td>
                     <td className="px-6 py-4 text-xs text-slate-500 dark:text-slate-400">
-                      {new Date(order.orderedAt).toLocaleDateString()}
+                      {order.orderedAt ? new Date(order.orderedAt).toLocaleDateString() : <span className="text-slate-400">—</span>}
                     </td>
                   </tr>
                 ))

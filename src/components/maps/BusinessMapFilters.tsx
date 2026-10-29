@@ -106,9 +106,9 @@ export default function BusinessMapFilters({
           onChange={(e) => onChange({ ...filters, orderColor: e.target.value as any })}
           className={selectCls}
         >
-          <option value="ALL">All Marker Colors</option>
-          <option value="GREEN">🟢 Green (≥1 Order recorded)</option>
-          <option value="RED">🔴 Red (No orders recorded)</option>
+          <option value="ALL">All Markers (Ordered & Leads)</option>
+          <option value="GREEN">🟢 Ordered (1+ Orders)</option>
+          <option value="RED">🔴 0 Orders (Leads & Prospects)</option>
         </select>
 
         {/* Reset button */}
@@ -123,21 +123,17 @@ export default function BusinessMapFilters({
       {/* Filter Counts Bar */}
       <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center gap-4 text-xs">
         <span className="text-slate-500 dark:text-slate-400">
-          Total Filtered: <strong className="text-slate-900 dark:text-slate-100 font-semibold">{stats.total}</strong>
-        </span>
-
-        <span className="text-slate-500 dark:text-slate-400">
-          Map Pins: <strong className="text-blue-600 dark:text-blue-400 font-semibold">{stats.located}</strong>
+          Total Mapped Pins: <strong className="text-slate-900 dark:text-slate-100 font-semibold">{stats.total}</strong>
         </span>
 
         <span className="text-emerald-700 dark:text-emerald-400 font-medium flex items-center gap-1">
           <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
-          {stats.green} Recorded Orders
+          {stats.green} Ordered (Active Clients)
         </span>
 
         <span className="text-rose-700 dark:text-rose-400 font-medium flex items-center gap-1">
           <span className="w-2 h-2 rounded-full bg-rose-500 inline-block" />
-          {stats.red} No Orders
+          {stats.red} 0 Orders (Leads / Prospects)
         </span>
 
         {stats.unlocated > 0 && (

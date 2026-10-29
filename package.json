@@ -1,6 +1,6 @@
 {
-  "name": "business-sales-test",
-  "version": "0.1.0",
+  "name": "geosales-os",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -24,7 +24,8 @@
     "next": "16.4.3",
     "prisma": "^5.22.0",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",

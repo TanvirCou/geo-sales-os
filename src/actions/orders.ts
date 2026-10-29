@@ -14,7 +14,7 @@ export interface OrderItemInput {
 
 export interface OrderInput {
   businessId: string;
-  orderedAt?: string;
+  orderedAt?: string | null;
   status?: OrderStatus;
   source?: string;
   externalOrderId?: string;
@@ -52,7 +52,10 @@ export async function getOrders(params?: {
 
   const orders = await db.order.findMany({
     where: whereClause,
-    orderBy: { orderedAt: "desc" },
+    orderBy: [
+      { orderedAt: { sort: "desc", nulls: "last" } },
+      { createdAt: "desc" },
+    ],
     include: {
       business: {
         select: { id: true, name: true, area: true, district: true, phoneRaw: true },
@@ -75,14 +78,19 @@ export async function getOrders(params?: {
     businessId: o.businessId,
     businessName: o.business.name,
     businessArea: o.business.area || o.business.district || "Unspecified",
-    orderedAt: o.orderedAt.toISOString(),
+    orderedAt: o.orderedAt?.toISOString() ?? null,
     status: o.status,
     source: o.source,
     itemCount: o.items.length,
-    totalBdt: o.items.reduce(
-      (sum, item) => sum + Number(item.quantity) * Number(item.unitPriceBdt),
-      0
-    ),
+    totalBdt:
+      o.totalAmountBdt != null && Number(o.totalAmountBdt) > 0
+        ? Number(o.totalAmountBdt)
+        : o.items.length > 0
+        ? o.items.reduce(
+            (sum, item) => sum + Number(item.quantity) * Number(item.unitPriceBdt),
+            0
+          )
+        : null,
     items: o.items.map((i) => ({
       id: i.id,
       name: i.sourceProductName || i.product?.name || "Item",
@@ -121,7 +129,7 @@ export async function getOrder(id: string) {
       address: order.business.address,
       phoneRaw: order.business.phoneRaw,
     },
-    orderedAt: order.orderedAt.toISOString(),
+    orderedAt: order.orderedAt?.toISOString() ?? null,
     status: order.status,
     source: order.source,
     items: order.items.map((i) => ({
@@ -134,10 +142,15 @@ export async function getOrder(id: string) {
       unitPriceBdt: Number(i.unitPriceBdt),
       lineTotal: Number(i.quantity) * Number(i.unitPriceBdt),
     })),
-    totalBdt: order.items.reduce(
-      (sum, i) => sum + Number(i.quantity) * Number(i.unitPriceBdt),
-      0
-    ),
+    totalBdt:
+      order.totalAmountBdt != null && Number(order.totalAmountBdt) > 0
+        ? Number(order.totalAmountBdt)
+        : order.items.length > 0
+        ? order.items.reduce(
+            (sum, i) => sum + Number(i.quantity) * Number(i.unitPriceBdt),
+            0
+          )
+        : null,
   };
 }
 
@@ -156,7 +169,7 @@ export async function createOrder(data: OrderInput) {
       const ord = await tx.order.create({
         data: {
           businessId: data.businessId,
-          orderedAt: data.orderedAt ? new Date(data.orderedAt) : new Date(),
+          orderedAt: data.orderedAt ? new Date(data.orderedAt) : null,
           status: data.status || OrderStatus.PENDING,
           source: data.source || "manual",
           externalOrderId: data.externalOrderId || `ORD-${Date.now().toString().slice(-6)}`,

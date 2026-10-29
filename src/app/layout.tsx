@@ -11,11 +11,11 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: {
-    default: "Business Sales Manager",
-    template: "%s | Business Sales Manager",
+    default: "GeoSales OS",
+    template: "%s | GeoSales OS",
   },
   description:
-    "Geo-mapping sales management system — track businesses, products, and orders across Bangladesh.",
+    "GeoSales OS — Geospatial sales management and territory intelligence platform across Bangladesh.",
   robots: { index: false, follow: false },
 };
 

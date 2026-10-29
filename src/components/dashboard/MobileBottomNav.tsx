@@ -150,11 +150,11 @@ export function MobileBottomNav({ adminName = "Admin User" }: { adminName?: stri
             <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
               <div className="flex items-center gap-2">
                 <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-xs">
-                  B
+                  G
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold">BSM Sales CRM</h3>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">All Modules & Engines</p>
+                  <h3 className="text-sm font-bold">GeoSales OS</h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">Territory Sales & CRM</p>
                 </div>
               </div>
 
