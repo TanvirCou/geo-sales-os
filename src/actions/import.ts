@@ -78,7 +78,20 @@ export async function normalizePhone(raw?: string): Promise<string> {
   return digits;
 }
 
-// ── 2. Geocoding Service (Geoapify Forward Geocode) ──────────────────────────
+// ── 2. Geocoding Service (POI-Aware Autocomplete + Area Fallback) ─────────────
+const STOP_WORDS = new Set([
+  "road", "rd", "lane", "ln", "avenue", "ave", "street", "st", "sarani",
+  "house", "holding", "sector", "sec", "plot", "block", "bangladesh", "bd"
+]);
+
+function extractKeyTerms(text: string): string[] {
+  return (text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((t) => t.length > 2 && !STOP_WORDS.has(t));
+}
+
 export async function geocodeLocation(
   businessName: string,
   location: string
@@ -91,69 +104,153 @@ export async function geocodeLocation(
     return { success: false, error: "Geoapify API key is not configured." };
   }
 
-
   try {
-    // Strip common road suffixes from location to get the area name alone
-    // e.g. "Dania Road" → "Dania"  (helps when the API doesn't know "Dania Road")
-    const areaOnly = location.trim()
-      .replace(/\b(road|rd|lane|ln|avenue|ave|street|st|sarani)\b/gi, "")
+    const bName = (businessName || "").trim();
+    const loc = (location || "").trim();
+    const locTerms = extractKeyTerms(loc);
+    const nameTerms = extractKeyTerms(bName);
+    const detectedDistrict = extractDistrictFromText(loc);
+
+    const areaOnly = loc
+      .replace(/\b(road|rd|lane|ln|avenue|ave|street|st|sarani|house|holding|sector|sec|plot|block)\b/gi, "")
       .replace(/\s+/g, " ")
       .trim();
 
-    // Build candidate queries — parallel fetch, best confidence wins.
-    // area-stripped candidate is listed first so it gets highest base confidence.
-    const candidates: { text: string; confidence: number }[] = [];
-    if (businessName.trim() && areaOnly && areaOnly.toLowerCase() !== location.trim().toLowerCase()) {
-      // name + area-only (best for POI near a neighbourhood)
-      candidates.push({ text: `${businessName.trim()}, ${areaOnly}, Bangladesh`, confidence: 0.95 });
-    }
-    // name + full location
-    candidates.push({ text: [businessName.trim(), location.trim(), "Bangladesh"].filter(Boolean).join(", "), confidence: 0.85 });
-    // Fallback: location alone (in case business name confuses the geocoder)
-    if (location.trim()) {
-      candidates.push({ text: `${location.trim()}, Bangladesh`, confidence: 0.6 });
-    }
+    const makeUrl = (q: string, limit = 5) =>
+      `https://api.geoapify.com/v1/geocode/autocomplete?text=${encodeURIComponent(
+        q
+      )}&filter=countrycode:bd&limit=${limit}&apiKey=${apiKey}`;
 
+    // ── Phase 1: POI Search (for shops, restaurants, bakeries, markets) ──────
+    if (bName) {
+      const poiQueries = new Set<string>();
+      if (areaOnly && areaOnly.toLowerCase() !== loc.toLowerCase()) {
+        poiQueries.add(`${bName} ${areaOnly}`);
+      }
+      poiQueries.add(`${bName} ${loc}`);
+      poiQueries.add(bName);
 
-    const parseFeature = (data: any, baseConfidence: number) => {
-      if (!data.features || data.features.length === 0) return null;
-      const feat = data.features[0];
-      const props = feat.properties || {};
-      const [lon, lat] = feat.geometry?.coordinates || [props.lon, props.lat];
-      if (lat == null || lon == null) return null;
-      return {
-        success: true as const,
-        placeId: props.place_id || `geo_${Date.now()}`,
-        latitude: Number(lat),
-        longitude: Number(lon),
-        formattedAddress: props.formatted || props.street || location || businessName,
-        confidence: props.rank?.confidence ?? baseConfidence,
-      };
-    };
+      const responses = await Promise.all(
+        [...poiQueries].map((q) =>
+          fetch(makeUrl(q, 5), { cache: "no-store" })
+            .then((r) => r.json())
+            .catch(() => null)
+        )
+      );
 
-    // Fire all queries in parallel, pick best by confidence
-    const responses = await Promise.all(
-      candidates.map(({ text }) =>
-        fetch(
-          `https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(text)}&filter=countrycode:bd&limit=1&apiKey=${apiKey}`,
-          { cache: "no-store" }
-        ).then((r) => r.json()).catch(() => null)
-      )
-    );
+      let bestPoi: GeocodeResult | null = null;
+      let bestPoiScore = 0;
 
-    let best: GeocodeResult | null = null;
-    for (let i = 0; i < responses.length; i++) {
-      const parsed = parseFeature(responses[i], candidates[i].confidence);
-      if (parsed && (!best || parsed.confidence > (best.confidence ?? 0))) {
-        best = parsed;
+      for (const data of responses) {
+        for (const feat of data?.features || []) {
+          const props = feat.properties || {};
+          const [lon, lat] = feat.geometry?.coordinates || [props.lon, props.lat];
+          if (lat == null || lon == null) continue;
+
+          const formatted = (props.formatted || "").toLowerCase();
+          const locMatchCount = locTerms.filter((t) => formatted.includes(t)).length;
+          const nameMatchCount = nameTerms.filter((t) => formatted.includes(t)).length;
+          const districtMatches = detectedDistrict && formatted.includes(detectedDistrict.toLowerCase());
+
+          // Anti-poison guard: if user provided location terms (e.g. Uttara), the result
+          // MUST match at least one location term or the district. Never match a random bakery in Gulshan!
+          if (locTerms.length > 0 && locMatchCount === 0 && !districtMatches) {
+            continue;
+          }
+
+          const score = (nameMatchCount * 2) + locMatchCount + (districtMatches ? 1 : 0);
+          if (score > bestPoiScore) {
+            bestPoiScore = score;
+            bestPoi = {
+              success: true,
+              placeId: props.place_id || `geo_${Date.now()}`,
+              latitude: Number(lat),
+              longitude: Number(lon),
+              formattedAddress: props.formatted || `${bName}, ${loc}`,
+              confidence: 0.95,
+            };
+          }
+        }
+      }
+
+      if (bestPoi && bestPoiScore >= 2) {
+        return bestPoi;
       }
     }
 
-    if (best) return best;
+    // ── Phase 2: Area / Neighborhood Fallback Search ─────────────────────────
+    // When the specific business isn't indexed on OpenStreetMap/Geoapify,
+    // pin it accurately to its neighborhood, street, or administrative center.
+    const areaQueries = new Set<string>();
+    if (loc.includes(",")) {
+      const parts = loc.split(",").map((s) => s.trim()).filter(Boolean);
+      if (parts.length >= 2) {
+        areaQueries.add(`${parts.slice(-2).join(" ")}, Bangladesh`);
+        if (detectedDistrict) {
+          areaQueries.add(`${parts[parts.length - 1]}, ${detectedDistrict}, Bangladesh`);
+        }
+      }
+    }
+    if (areaOnly && areaOnly !== loc) {
+      areaQueries.add(`${areaOnly}, Bangladesh`);
+      if (detectedDistrict) {
+        areaQueries.add(`${areaOnly}, ${detectedDistrict}, Bangladesh`);
+      }
+    }
+    if (loc) {
+      areaQueries.add(`${loc}, Bangladesh`);
+    }
 
+    const areaResponses = await Promise.all(
+      [...areaQueries].map((q) =>
+        fetch(makeUrl(q, 4), { cache: "no-store" })
+          .then((r) => r.json())
+          .catch(() => null)
+      )
+    );
+
+    let bestArea: GeocodeResult | null = null;
+    let bestAreaScore = 0;
+
+    for (const data of areaResponses) {
+      for (const feat of data?.features || []) {
+        const props = feat.properties || {};
+        const [lon, lat] = feat.geometry?.coordinates || [props.lon, props.lat];
+        if (lat == null || lon == null) continue;
+
+        const formatted = (props.formatted || "").toLowerCase();
+        const locMatchCount = locTerms.filter((t) => formatted.includes(t)).length;
+        const districtMatches = detectedDistrict && formatted.includes(detectedDistrict.toLowerCase());
+
+        // Validate that this area match actually shares terms or district
+        if (locTerms.length > 0 && locMatchCount === 0 && !districtMatches) {
+          continue;
+        }
+
+        const score = (locMatchCount * 2) + (districtMatches ? 2 : 0);
+        if (score > bestAreaScore) {
+          bestAreaScore = score;
+          bestArea = {
+            success: true,
+            placeId: props.place_id || `geo_${Date.now()}`,
+            latitude: Number(lat),
+            longitude: Number(lon),
+            formattedAddress: props.formatted || loc,
+            confidence: 0.75,
+          };
+        }
+      }
+    }
+
+    if (bestArea && bestAreaScore > 0) {
+      return bestArea;
+    }
+
+    // ── Phase 3: No reliable match ───────────────────────────────────────────
+    // Mark as needing location rather than guessing random coordinates in other divisions
     return {
       success: false,
-      error: "Location could not be recognized. Manual assignment needed.",
+      error: "Location could not be recognized reliably. Manual assignment needed.",
     };
   } catch (err: any) {
     console.error("Geocoding fetch error:", err);

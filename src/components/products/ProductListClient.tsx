@@ -11,6 +11,7 @@ import {
   ProductInput,
 } from "@/actions/products";
 import { Pagination } from "@/components/ui/Pagination";
+import { Trash2, AlertTriangle, Archive as ArchiveIcon } from "lucide-react";
 
 interface ProductItem {
   id: string;
@@ -42,6 +43,10 @@ export default function ProductListClient({
   const [formSku, setFormSku] = useState("");
   const [formUnit, setFormUnit] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+
+  // Confirmation Modals State
+  const [deletingProduct, setDeletingProduct] = useState<ProductItem | null>(null);
+  const [archivingProduct, setArchivingProduct] = useState<ProductItem | null>(null);
 
   // Transitions
   const [isPending, startTransition] = useTransition();
@@ -101,27 +106,34 @@ export default function ProductListClient({
     });
   };
 
-  const handleDelete = (id: string, name: string) => {
-    if (!confirm(`Are you sure you want to permanently delete "${name}"?`)) return;
-
+  const confirmDeleteAction = () => {
+    if (!deletingProduct) return;
+    const target = deletingProduct;
     startTransition(async () => {
-      const res = await deleteProduct(id);
-      if (res.error) {
+      const res = await deleteProduct(target.id);
+      setDeletingProduct(null);
+      if (res?.error) {
         setFeedback({ text: res.error, type: "error" });
       } else {
-        setFeedback({ text: `Deleted "${name}" successfully.`, type: "success" });
+        setFeedback({ text: `Deleted "${target.name}" successfully.`, type: "success" });
         router.refresh();
       }
     });
   };
 
-  const handleArchive = (id: string, name: string) => {
+  const confirmArchiveAction = () => {
+    if (!archivingProduct) return;
+    const target = archivingProduct;
     startTransition(async () => {
-      const res = await archiveProduct(id);
-      if (res.error) {
+      const res = await archiveProduct(target.id);
+      setArchivingProduct(null);
+      if (res?.error) {
         setFeedback({ text: res.error, type: "error" });
       } else {
-        setFeedback({ text: `Archived "${name}". Historical orders will keep historical unit prices.`, type: "success" });
+        setFeedback({
+          text: `Archived "${target.name}". Historical orders will keep historical unit prices.`,
+          type: "success",
+        });
         router.refresh();
       }
     });
@@ -276,7 +288,7 @@ export default function ProductListClient({
 
                       {p.isActive ? (
                         <button
-                          onClick={() => handleArchive(p.id, p.name)}
+                          onClick={() => setArchivingProduct(p)}
                           className="px-2.5 py-1 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-md text-xs font-medium shadow-sm transition-all"
                           title="Archive product (preserves historical order items)"
                         >
@@ -292,7 +304,7 @@ export default function ProductListClient({
                       )}
 
                       <button
-                        onClick={() => handleDelete(p.id, p.name)}
+                        onClick={() => setDeletingProduct(p)}
                         className="px-2.5 py-1 bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30 rounded-md text-xs font-medium transition-all"
                         title={
                           p.orderItemCount > 0
@@ -341,7 +353,7 @@ export default function ProductListClient({
                   type="text"
                   value={formName}
                   onChange={(e) => setFormName(e.target.value)}
-                  placeholder="e.g. Pure Mustard Oil 1L"
+                  placeholder="e.g. Menu Book"
                   className="w-full px-3.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 shadow-sm"
                 />
               </div>
@@ -353,7 +365,7 @@ export default function ProductListClient({
                     type="text"
                     value={formSku}
                     onChange={(e) => setFormSku(e.target.value)}
-                    placeholder="e.g. OIL-MST-1L"
+                    placeholder="e.g. MENU-BK-01"
                     className="w-full px-3.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 shadow-sm"
                   />
                 </div>
@@ -364,7 +376,7 @@ export default function ProductListClient({
                     type="text"
                     value={formUnit}
                     onChange={(e) => setFormUnit(e.target.value)}
-                    placeholder="e.g. Pcs, Box, Sheet"
+                    placeholder="e.g. Pcs, Box, Set"
                     className="w-full px-3.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 shadow-sm"
                   />
                 </div>
@@ -385,6 +397,121 @@ export default function ProductListClient({
               >
                 {isPending ? "Saving…" : editingProduct ? "Update Product" : "Create Product"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Archive Confirmation Modal ─────────────────────────────────────── */}
+      {archivingProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xl space-y-5 text-slate-900 dark:text-slate-100">
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                <ArchiveIcon className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Archive Product
+                </h3>
+                <p className="text-sm text-slate-600 dark:text-slate-300">
+                  Are you sure you want to archive <strong className="text-slate-900 dark:text-white font-semibold">"{archivingProduct.name}"</strong>?
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 space-y-1.5 leading-relaxed">
+              Archiving hides this product from the active catalog and new order entry. Historical orders ({archivingProduct.orderItemCount} order line(s)) will preserve their recorded prices, and you can restore it anytime using <strong>"Show Archived"</strong>.
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setArchivingProduct(null)}
+                className="px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={confirmArchiveAction}
+                className="px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-amber-500 hover:bg-amber-600 text-white shadow-md shadow-amber-500/25 transition-all disabled:opacity-50"
+              >
+                {isPending ? "Archiving..." : "Archive Product"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete Confirmation Modal ─────────────────────────────────────── */}
+      {deletingProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xl space-y-5 text-slate-900 dark:text-slate-100">
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Delete Product
+                </h3>
+                <p className="text-sm text-slate-600 dark:text-slate-300">
+                  Are you sure you want to permanently delete <strong className="text-slate-900 dark:text-white font-semibold">"{deletingProduct.name}"</strong>?
+                </p>
+              </div>
+            </div>
+
+            {deletingProduct.orderItemCount > 0 ? (
+              <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 text-xs text-rose-700 dark:text-rose-300 space-y-1.5">
+                <div className="flex items-center gap-1.5 font-bold text-rose-800 dark:text-rose-200">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>Referenced in {deletingProduct.orderItemCount} Historical Order Line(s)</span>
+                </div>
+                <p className="leading-relaxed">
+                  Hard delete is restricted because historical orders reference this product. To preserve invoice records, please archive this product instead.
+                </p>
+              </div>
+            ) : (
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 text-xs text-slate-600 dark:text-slate-300">
+                This action cannot be undone. This product record will be permanently deleted from the database.
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setDeletingProduct(null)}
+                className="px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all"
+              >
+                Cancel
+              </button>
+
+              {deletingProduct.orderItemCount > 0 ? (
+                <button
+                  type="button"
+                  disabled={isPending}
+                  onClick={() => {
+                    const p = deletingProduct;
+                    setDeletingProduct(null);
+                    setArchivingProduct(p);
+                  }}
+                  className="px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-amber-500 hover:bg-amber-600 text-white shadow-md shadow-amber-500/25 transition-all"
+                >
+                  Archive Instead
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={isPending}
+                  onClick={confirmDeleteAction}
+                  className="px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-rose-600 hover:bg-rose-700 text-white shadow-md shadow-rose-600/25 transition-all disabled:opacity-50"
+                >
+                  {isPending ? "Deleting..." : "Delete Permanently"}
+                </button>
+              )}
             </div>
           </div>
         </div>

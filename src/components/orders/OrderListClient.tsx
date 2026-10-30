@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation";
 import { OrderStatus } from "@prisma/client";
 import { Pagination } from "@/components/ui/Pagination";
 import RecordOrderModal from "@/components/orders/RecordOrderModal";
+import { Trash2, AlertTriangle } from "lucide-react";
 
 interface OrderItemDisplay {
   id: string;
@@ -74,34 +75,50 @@ export default function OrderListClient({
   };
 
 
-  const handleCancelOrder = (id: string, extId: string | null) => {
-    if (!confirm(`Cancel order ${extId || id.slice(0, 8)}? Order history is preserved.`)) return;
+  // Confirmation Modals State
+  const [cancellingOrder, setCancellingOrder] = useState<{
+    id: string;
+    extId: string | null;
+    businessName: string;
+  } | null>(null);
 
+  const [deletingOrder, setDeletingOrder] = useState<{
+    id: string;
+    extId: string | null;
+    businessName: string;
+  } | null>(null);
+
+  const confirmCancelAction = () => {
+    if (!cancellingOrder) return;
+    const target = cancellingOrder;
     startTransition(async () => {
-      const res = await cancelOrder(id);
-      if (res.error) {
+      const res = await cancelOrder(target.id);
+      setCancellingOrder(null);
+      if (res?.error) {
         setFeedback({ text: res.error, type: "error" });
       } else {
-        setFeedback({ text: "Order marked as CANCELLED. (Note: Business marker remains GREEN per rule).", type: "success" });
+        setFeedback({
+          text: `Order #${target.extId || target.id.slice(0, 8)} marked as CANCELLED.`,
+          type: "success",
+        });
         router.refresh();
       }
     });
   };
 
-  const handleDeleteOrder = (id: string, extId: string | null) => {
-    if (
-      !confirm(
-        `PERMANENTLY DELETE mistaken order ${extId || id.slice(0, 8)}? This will remove all items. If this is the business's last order, its marker color will return to RED.`
-      )
-    )
-      return;
-
+  const confirmDeleteAction = () => {
+    if (!deletingOrder) return;
+    const target = deletingOrder;
     startTransition(async () => {
-      const res = await deleteOrder(id);
-      if (res.error) {
+      const res = await deleteOrder(target.id);
+      setDeletingOrder(null);
+      if (res?.error) {
         setFeedback({ text: res.error, type: "error" });
       } else {
-        setFeedback({ text: "Order permanently deleted.", type: "success" });
+        setFeedback({
+          text: `Order #${target.extId || target.id.slice(0, 8)} permanently deleted.`,
+          type: "success",
+        });
         router.refresh();
       }
     });
@@ -296,18 +313,31 @@ export default function OrderListClient({
                         View
                       </Link>
 
-                      {o.status !== "CANCELLED" && (
+                      {/* Cancel option is ONLY shown for PENDING orders (Delivered orders cannot be cancelled) */}
+                      {o.status === "PENDING" && (
                         <button
-                          onClick={() => handleCancelOrder(o.id, o.externalOrderId)}
+                          onClick={() =>
+                            setCancellingOrder({
+                              id: o.id,
+                              extId: o.externalOrderId,
+                              businessName: o.businessName,
+                            })
+                          }
                           className="px-2.5 py-1 bg-amber-50 dark:bg-amber-500/10 hover:bg-amber-100 dark:hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/30 rounded-md text-xs font-medium transition-all"
-                          title="Cancel order (retains history)"
+                          title="Cancel pending order"
                         >
                           Cancel
                         </button>
                       )}
 
                       <button
-                        onClick={() => handleDeleteOrder(o.id, o.externalOrderId)}
+                        onClick={() =>
+                          setDeletingOrder({
+                            id: o.id,
+                            extId: o.externalOrderId,
+                            businessName: o.businessName,
+                          })
+                        }
                         className="px-2.5 py-1 bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30 rounded-md text-xs font-medium transition-all"
                         title="Permanently remove mistaken entry"
                       >
@@ -341,6 +371,100 @@ export default function OrderListClient({
           setFeedback({ text: "Order recorded successfully. Business marker updated.", type: "success" });
         }}
       />
+
+      {/* ── Cancel Order Confirmation Modal ────────────────────────────────────── */}
+      {cancellingOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xl space-y-5 text-slate-900 dark:text-slate-100">
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Cancel Order #{cancellingOrder.extId || cancellingOrder.id.slice(0, 8)}
+                </h3>
+                <p className="text-sm text-slate-600 dark:text-slate-300">
+                  Are you sure you want to cancel this order for <strong className="text-slate-900 dark:text-white font-semibold">"{cancellingOrder.businessName}"</strong>?
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 space-y-1.5 leading-relaxed">
+              Order status will be set to <strong>CANCELLED</strong>. Historical records will be retained, and the client will remain on the sales map.
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setCancellingOrder(null)}
+                className="px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all"
+              >
+                Keep Order
+              </button>
+
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={confirmCancelAction}
+                className="px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-amber-500 hover:bg-amber-600 text-white shadow-md shadow-amber-500/25 transition-all disabled:opacity-50"
+              >
+                {isPending ? "Cancelling…" : "Confirm Cancellation"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete Order Confirmation Modal ────────────────────────────────────── */}
+      {deletingOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xl space-y-5 text-slate-900 dark:text-slate-100">
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Permanently Delete Order #{deletingOrder.extId || deletingOrder.id.slice(0, 8)}
+                </h3>
+                <p className="text-sm text-slate-600 dark:text-slate-300">
+                  Are you sure you want to permanently delete this order for <strong className="text-slate-900 dark:text-white font-semibold">"{deletingOrder.businessName}"</strong>?
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 text-xs text-rose-700 dark:text-rose-300 space-y-1.5 leading-relaxed">
+              <div className="font-bold flex items-center gap-1 text-rose-800 dark:text-rose-200">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>Action Cannot Be Undone</span>
+              </div>
+              <p>
+                All items in this order will be permanently removed. If this is the client's only recorded order, the client's marker color on the sales map will return to <strong>RED</strong>.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setDeletingOrder(null)}
+                className="px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={confirmDeleteAction}
+                className="px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-rose-600 hover:bg-rose-700 text-white shadow-md shadow-rose-600/25 transition-all disabled:opacity-50"
+              >
+                {isPending ? "Deleting…" : "Delete Permanently"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

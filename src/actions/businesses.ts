@@ -62,11 +62,11 @@ export async function getBusinesses(params?: {
     ];
   }
 
-  // Core business rule: Client business directory only lists businesses with recorded orders (orderCount >= 1)
-  if (orderColor === "RED") {
-    whereClause.orders = { none: {} };
-  } else {
+  // Allow all businesses in DB (0 orders will naturally sort at the end)
+  if (orderColor === "GREEN") {
     whereClause.orders = { some: {} };
+  } else if (orderColor === "RED") {
+    whereClause.orders = { none: {} };
   }
 
   const businesses = await db.business.findMany({
@@ -109,7 +109,7 @@ export async function getBusinesses(params?: {
       coordinateSource: b.coordinateSource,
       isActive: b.isActive,
       orderCount: b._count.orders,
-      isGreen: b._count.orders > 0, // Master rule: Orders >= 1 -> GREEN, Orders = 0 -> RED
+      isGreen: true, // Since it is in our DB, it is a registered Client -> GREEN
       createdAt: b.createdAt.toISOString(),
       latestOrderTime,
     };
@@ -179,7 +179,7 @@ export async function getBusiness(id: string) {
     latitude: business.latitude ? Number(business.latitude) : null,
     longitude: business.longitude ? Number(business.longitude) : null,
     orderCount: business._count.orders,
-    isGreen: business._count.orders > 0,
+    isGreen: true, // Since it is in our DB, it is a registered Client -> GREEN
     orders: business.orders.map((o) => ({
       id: o.id,
       externalOrderId: o.externalOrderId,

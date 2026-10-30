@@ -1,14 +1,15 @@
 import type { Metadata } from "next";
-import { getMapBusinesses } from "@/actions/map";
+import { getMapBusinesses, fetchLiveRestaurantProspects } from "@/actions/map";
 import { getBusinessFilterOptions } from "@/actions/businesses";
 import GeoapifyMapClient from "@/components/maps/GeoapifyMapClient";
 
 export const metadata: Metadata = { title: "Geoapify Map — Business Sales" };
 
 export default async function GeoapifyMapPage() {
-  const [mapData, filterOptions] = await Promise.all([
+  const [mapData, filterOptions, initialProspectsData] = await Promise.all([
     getMapBusinesses(),
     getBusinessFilterOptions(),
+    fetchLiveRestaurantProspects({ lat: 23.7405, lon: 90.3846, radiusMeters: 4000 }).catch(() => ({ prospects: [] })),
   ]);
 
   const apiKey = process.env.NEXT_PUBLIC_GEOAPIFY_API_KEY || "";
@@ -26,6 +27,7 @@ export default async function GeoapifyMapPage() {
 
       <GeoapifyMapClient
         initialBusinesses={mapData.businesses}
+        initialProspects={initialProspectsData.prospects || []}
         categories={filterOptions.categories}
         districts={filterOptions.districts}
         areas={filterOptions.areas}

@@ -1,16 +1,11 @@
 "use client";
 
-import {
-    MapBusiness,
-    RestaurantProspect,
-    calculateGeoapifyRoute,
-    convertProspectToClient,
-    fetchLiveRestaurantProspects,
-} from "@/actions/map";
+import { MapBusiness, RestaurantProspect, calculateGeoapifyRoute, fetchLiveRestaurantProspects } from "@/actions/map";
 import Link from "next/link";
 import Script from "next/script";
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import BusinessMapFilters, { MapFiltersState } from "./BusinessMapFilters";
+import AddBusinessFromMapModal, { MapPointPreset } from "./AddBusinessFromMapModal";
 
 declare global {
   interface Window {
@@ -20,9 +15,10 @@ declare global {
 
 interface GeoapifyMapProps {
   initialBusinesses: MapBusiness[];
+  initialProspects?: RestaurantProspect[];
   categories: string[];
   districts: string[];
-  areas: string[];
+  areas?: string[];
   apiKey?: string;
 }
 
@@ -45,6 +41,7 @@ export interface UnifiedMapPoint {
 
 export default function GeoapifyMapClient({
   initialBusinesses,
+  initialProspects,
   categories,
   districts,
   areas,
@@ -63,17 +60,18 @@ export default function GeoapifyMapClient({
   const [routeInfo, setRouteInfo] = useState<{ distanceKm: number; durationMin: number } | null>(null);
   const [isRouting, setIsRouting] = useState(false);
 
-  // Live Prospects State
-  const [prospects, setProspects] = useState<RestaurantProspect[]>([]);
+  // Live Prospects / Leads State (Red Markers)
+  const [prospects, setProspects] = useState<RestaurantProspect[]>(initialProspects || []);
   const [isScanning, setIsScanning] = useState(false);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
-  const [convertingId, setConvertingId] = useState<string | null>(null);
-  const [conversionSuccess, setConversionSuccess] = useState<string | null>(null);
+
   const [isLocating, setIsLocating] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
-  // Stores the user's real GPS position for routing
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+
+  // Add-from-map modal
+  const [addFromMapPreset, setAddFromMapPreset] = useState<MapPointPreset | null>(null);
+  const [conversionSuccess, setConversionSuccess] = useState<string | null>(null);
 
   // Filter state
   const [filters, setFilters] = useState<MapFiltersState>({
@@ -84,12 +82,14 @@ export default function GeoapifyMapClient({
     orderColor: "ALL",
   });
 
+  // Live converted clients from map
+  const [convertedClients, setConvertedClients] = useState<UnifiedMapPoint[]>([]);
+
   // Client DB businesses transformed to unified points
   const clientPoints: UnifiedMapPoint[] = useMemo(() => {
-    return initialBusinesses
+    const base = initialBusinesses
       .filter((b) => b.latitude != null && b.longitude != null)
       .map((b) => {
-        const hasOrders = (b.orderCount || 0) > 0;
         return {
           id: b.id,
           name: b.name,
@@ -102,12 +102,13 @@ export default function GeoapifyMapClient({
           longitude: Number(b.longitude),
           isClient: true,
           orderCount: b.orderCount || 0,
-          markerColor: hasOrders ? ("green" as const) : ("red" as const),
+          markerColor: "green" as const, // In DB -> Green Client!
         };
       });
-  }, [initialBusinesses]);
+    return [...base, ...convertedClients];
+  }, [initialBusinesses, convertedClients]);
 
-  // Prospect points transformed to unified points (avoiding duplicates with client points)
+  // Prospect points transformed to unified points (Red Markers)
   const prospectPoints: UnifiedMapPoint[] = useMemo(() => {
     return prospects
       .filter((p) => !p.isClient)
@@ -123,42 +124,23 @@ export default function GeoapifyMapClient({
         longitude: p.longitude,
         isClient: false,
         orderCount: 0,
-        markerColor: "red",
+        markerColor: "red" as const,
         externalPlaceId: p.id,
       }));
   }, [prospects]);
 
-  // Combine and apply client-side search & filters
+  // Apply client-side search & filters (Both Green DB clients & Red Prospects)
   const displayedPoints = useMemo(() => {
-    const all = [...clientPoints, ...prospectPoints];
-
-    return all.filter((pt) => {
-      // Color / Status filter: GREEN = Has Orders (>= 1), RED = No Orders (= 0)
+    const combined = [...clientPoints, ...prospectPoints];
+    return combined.filter((pt) => {
       if (filters.orderColor === "GREEN" && pt.markerColor !== "green") return false;
       if (filters.orderColor === "RED" && pt.markerColor !== "red") return false;
-
-      // Category filter
-      if (
-        filters.category !== "ALL" &&
-        !pt.category.toLowerCase().includes(filters.category.toLowerCase())
-      ) {
-        return false;
-      }
-
-      // District filter (for clients)
-      if (filters.district !== "ALL" && pt.district !== filters.district) {
-        return false;
-      }
-
-      // Search query filter
+      if (filters.category !== "ALL" && !pt.category.toLowerCase().includes(filters.category.toLowerCase())) return false;
+      if (filters.district !== "ALL" && pt.district !== filters.district) return false;
       if (filters.q) {
         const query = filters.q.toLowerCase();
-        const matchName = pt.name.toLowerCase().includes(query);
-        const matchAddr = pt.address.toLowerCase().includes(query);
-        const matchCat = pt.category.toLowerCase().includes(query);
-        if (!matchName && !matchAddr && !matchCat) return false;
+        if (!pt.name.toLowerCase().includes(query) && !pt.address.toLowerCase().includes(query) && !pt.category.toLowerCase().includes(query)) return false;
       }
-
       return true;
     });
   }, [clientPoints, prospectPoints, filters]);
@@ -166,45 +148,6 @@ export default function GeoapifyMapClient({
   const greenCount = displayedPoints.filter((p) => p.markerColor === "green").length;
   const redCount = displayedPoints.filter((p) => p.markerColor === "red").length;
   const unlocatedClients = initialBusinesses.filter((b) => b.latitude == null || b.longitude == null);
-
-  // Scan live area for BD restaurants using Geoapify Places API
-  const handleScanArea = async (customLat?: number, customLon?: number) => {
-    setIsScanning(true);
-    setScanMessage(null);
-
-    let lat = customLat || 23.7405;
-    let lon = customLon || 90.3846;
-
-    if (!customLat && mapInstanceRef.current) {
-      const center = mapInstanceRef.current.getCenter();
-      lat = center.lat;
-      lon = center.lng;
-    }
-
-    try {
-      const result = await fetchLiveRestaurantProspects({
-        lat,
-        lon,
-        radiusMeters: 3000,
-      });
-
-      if (result.error) {
-        setScanMessage(`⚠️ ${result.error}`);
-      } else if (result.prospects) {
-        // Merge without duplicating existing IDs
-        setProspects((prev) => {
-          const existingIds = new Set(prev.map((p) => p.id));
-          const newUnique = result.prospects.filter((p: RestaurantProspect) => !existingIds.has(p.id));
-          return [...prev, ...newUnique];
-        });
-        setScanMessage(`✅ Found ${result.prospects.length} hospitality businesses in this area! Red pins are leads with 0 orders.`);
-      }
-    } catch (err: any) {
-      setScanMessage(`❌ Scan failed: ${err.message}`);
-    } finally {
-      setIsScanning(false);
-    }
-  };
 
   // Helper: place the blue pulsing dot on a map instance with single-popup enforcement
   const placePulsingDot = useCallback((map: any, lat: number, lng: number) => {
@@ -286,7 +229,41 @@ export default function GeoapifyMapClient({
     locationMarkerRef.current = marker;
   }, []);
 
-  // Fly to user's current location and place a pulsing blue dot
+  // Scan live area for BD hospitality businesses (Hotels, Parlours, Food) within radius (default 3000m / 3km)
+  const handleScanArea = async (customLat?: number, customLon?: number, customRadius: number = 3000) => {
+    setIsScanning(true);
+    setScanMessage(null);
+
+    let lat: number = customLat ?? userLocation?.lat ?? 23.7405;
+    let lon: number = customLon ?? userLocation?.lng ?? 90.3846;
+
+    if (customLat == null && !userLocation && mapInstanceRef.current) {
+      const center = mapInstanceRef.current.getCenter();
+      lat = typeof center.lat === "function" ? center.lat() : center.lat;
+      lon = typeof center.lng === "function" ? center.lng() : center.lng;
+    }
+
+    try {
+      const result = await fetchLiveRestaurantProspects({
+        lat,
+        lon,
+        radiusMeters: customRadius,
+      });
+
+      if (result.error) {
+        setScanMessage(`⚠️ ${result.error}`);
+      } else if (result.prospects) {
+        setProspects(result.prospects);
+        setScanMessage(`✅ আপনার বর্তমান লোকেশনের ৩ কিমি এর মধ্যে ${result.prospects.length} টি সম্ভাব্য বিজনেস (Red Mark) পাওয়া গেছে।`);
+      }
+    } catch (err: any) {
+      setScanMessage(`❌ Scan failed: ${err.message}`);
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  // Fly to user's current location, place pulsing blue dot, and scan 3km around
   const handleLocateMe = () => {
     if (!mapInstanceRef.current || !window.maplibregl) return;
     if (!navigator.geolocation) {
@@ -304,19 +281,17 @@ export default function GeoapifyMapClient({
         if (!map) return;
 
         placePulsingDot(map, latitude, longitude);
-
-        // Update userLocation so routes use real position
         setUserLocation({ lat: latitude, lng: longitude });
 
-        // Fly to current location
         map.flyTo({
           center: [longitude, latitude],
-          zoom: 15,
+          zoom: 14.5,
           speed: 1.4,
           curve: 1.4,
         });
 
         setIsLocating(false);
+        handleScanArea(latitude, longitude, 3000);
       },
       (err) => {
         setIsLocating(false);
@@ -326,41 +301,10 @@ export default function GeoapifyMapClient({
           setLocationError(`⚠️ Could not get your location: ${err.message}`);
         }
       },
-      { enableHighAccuracy: true, timeout: 10000 }
+      { enableHighAccuracy: true, timeout: 8000 }
     );
   };
 
-  // Convert a prospect to a client
-  const handleConvertProspect = async (point: UnifiedMapPoint) => {
-    setConvertingId(point.id);
-    setConversionSuccess(null);
-
-    startTransition(async () => {
-      const res = await convertProspectToClient({
-        name: point.name,
-        address: point.address,
-        category: point.category,
-        area: point.area,
-        district: point.district,
-        latitude: point.latitude,
-        longitude: point.longitude,
-        externalPlaceId: point.externalPlaceId,
-      });
-
-      setConvertingId(null);
-
-      if (res.success) {
-        setConversionSuccess(`🎉 "${point.name}" has been converted to an active Client! Initial order created.`);
-        // Mark as client in local state immediately so marker turns green
-        setProspects((prev) =>
-          prev.map((p) => (p.id === point.id ? { ...p, isClient: true, markerColor: "green" } : p))
-        );
-        setSelectedPoint((prev) => (prev?.id === point.id ? { ...prev, isClient: true, markerColor: "green" } : prev));
-      } else {
-        alert(res.error || "Failed to convert prospect.");
-      }
-    });
-  };
 
   // Initialize MapLibre Map — loads English-only style to prevent broken Bengali ligatures
   const initMap = async () => {
@@ -445,12 +389,11 @@ export default function GeoapifyMapClient({
         setMapLoaded(true);
 
         if (isRealLocation) {
-          // Place pulsing blue dot for the user's real location
           placePulsingDot(map, centerLat, centerLng);
         }
 
-        // Scan the area the map loaded on
-        handleScanArea(centerLat, centerLng);
+        // Always scan 3km around starting coordinates on map load
+        handleScanArea(centerLat, centerLng, 3000);
       });
     };
 
@@ -502,8 +445,6 @@ export default function GeoapifyMapClient({
       setMapLoaded(false);
       clientMarkersRef.current.forEach((m) => m.remove());
       clientMarkersRef.current = [];
-      prospectMarkersRef.current.forEach((m) => m.remove());
-      prospectMarkersRef.current = [];
       if (locationMarkerRef.current) {
         locationMarkerRef.current.remove();
         locationMarkerRef.current = null;
@@ -517,17 +458,11 @@ export default function GeoapifyMapClient({
     };
   }, []);
 
-  // Route calculation — calls real Geoapify Routing API to trace genuine road geometry & exact ETA
-  const handleCalculateRoute = async (targetPoint?: UnifiedMapPoint) => {
-    const pt = targetPoint || selectedPoint;
-    if (!pt || !mapInstanceRef.current) return;
-
-    setSelectedPoint(pt);
-
+  // Helper to execute Geoapify route calculation
+  const executeGeoapifyRoute = async (startLat: number, startLng: number, pt: UnifiedMapPoint) => {
     const map = mapInstanceRef.current;
-    // Use real user GPS location if available, otherwise fallback to Dhaka center
-    const startLat = userLocation?.lat ?? 23.7405;
-    const startLng = userLocation?.lng ?? 90.3846;
+    if (!map) return;
+
     const destLng = pt.longitude;
     const destLat = pt.latitude;
 
@@ -561,7 +496,6 @@ export default function GeoapifyMapClient({
           });
         }
 
-        // Fit map bounds to the actual road coordinates returned by Geoapify
         const bounds = new window.maplibregl.LngLatBounds();
         const coords = res.geojson.geometry?.coordinates;
         if (coords) {
@@ -586,6 +520,46 @@ export default function GeoapifyMapClient({
     }
   };
 
+  // Route calculation — routes directly from user's current location to selected business
+  const handleCalculateRoute = async (targetPoint?: UnifiedMapPoint) => {
+    const pt = targetPoint || selectedPoint;
+    if (!pt || !mapInstanceRef.current) return;
+
+    setSelectedPoint(pt);
+
+    // If userLocation is already available, calculate directly from user's current location!
+    if (userLocation) {
+      executeGeoapifyRoute(userLocation.lat, userLocation.lng, pt);
+      return;
+    }
+
+    // If userLocation is not yet set, obtain current position first then calculate route
+    if (navigator.geolocation) {
+      setIsRouting(true);
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          setUserLocation({ lat, lng });
+          if (mapInstanceRef.current) {
+            placePulsingDot(mapInstanceRef.current, lat, lng);
+          }
+          executeGeoapifyRoute(lat, lng, pt);
+        },
+        () => {
+          // If denied, fallback to map center
+          const center = mapInstanceRef.current?.getCenter();
+          const fallbackLat = center ? (typeof center.lat === "function" ? center.lat() : center.lat) : 23.7405;
+          const fallbackLng = center ? (typeof center.lng === "function" ? center.lng() : center.lng) : 90.3846;
+          executeGeoapifyRoute(fallbackLat, fallbackLng, pt);
+        },
+        { enableHighAccuracy: true, timeout: 6000 }
+      );
+    } else {
+      executeGeoapifyRoute(23.7405, 90.3846, pt);
+    }
+  };
+
   const handleClearRoute = () => {
     setRouteInfo(null);
     if (mapInstanceRef.current && mapInstanceRef.current.getSource("route")) {
@@ -595,6 +569,7 @@ export default function GeoapifyMapClient({
       });
     }
   };
+
 
   // Render Markers on MapLibre with Rich Interactive Popups
   useEffect(() => {
@@ -652,18 +627,19 @@ export default function GeoapifyMapClient({
         ? `${pt.name} (🟢 Ordered - ${pt.orderCount} Orders)`
         : `${pt.name} (🔴 0 Orders - Hospitality Lead)`;
 
-      // Popup Container DOM
+      // Popup Container DOM — theme handled by CSS classes .map-popup-inner etc.
       const popupContainer = document.createElement("div");
-      popupContainer.style.cssText = "padding: 14px 16px 14px 16px; font-family: inherit; color: #0f172a; min-width: 230px; max-width: 270px; box-sizing: border-box;";
+      popupContainer.className = "map-popup-inner";
 
-      // Title (with right padding so close button doesn't collide)
+      // Title
       const titleEl = document.createElement("div");
-      titleEl.style.cssText = "font-weight: 700; font-size: 14px; margin-bottom: 4px; padding-right: 28px; line-height: 1.35; color: #0f172a;";
+      titleEl.className = "map-popup-title";
       titleEl.textContent = pt.name;
 
       // Subtitle (Category & Address)
       const subEl = document.createElement("div");
-      subEl.style.cssText = `font-size: 11.5px; color: #64748b; margin-bottom: ${isGreen ? "9px" : "12px"}; line-height: 1.5;`;
+      subEl.className = "map-popup-sub";
+      subEl.style.marginBottom = isGreen ? "9px" : "12px";
       subEl.textContent = `${pt.category} • ${pt.address}`;
 
       popupContainer.appendChild(titleEl);
@@ -672,14 +648,11 @@ export default function GeoapifyMapClient({
       // Status Badge (only for green ordered clients)
       if (isGreen) {
         const badgeEl = document.createElement("div");
-        badgeEl.style.cssText = "display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; font-size: 11px; font-weight: 700; border-radius: 9999px; margin-bottom: 11px; background: rgba(16, 185, 129, 0.12); color: #047857; border: 1px solid rgba(16,185,129,0.2);";
+        badgeEl.className = "map-popup-badge";
+        badgeEl.style.marginBottom = "11px";
         badgeEl.textContent = `🟢 Ordered Client (${pt.orderCount} Order${pt.orderCount > 1 ? "s" : ""})`;
         popupContainer.appendChild(badgeEl);
       }
-
-      // Action Buttons Container
-      const actionsEl = document.createElement("div");
-      actionsEl.style.cssText = "display: flex; flex-direction: column; gap: 6px; padding-top: 2px;";
 
       const popup = new window.maplibregl.Popup({
         offset: 16,
@@ -694,52 +667,27 @@ export default function GeoapifyMapClient({
         }
       });
 
-      // Route Location Button directly inside Popup
+      // Route Action Button inside popup
       const routeBtn = document.createElement("button");
       routeBtn.type = "button";
-      routeBtn.style.cssText = `
-        width: 100%;
-        padding: 7px 12px;
-        background: #2563eb;
-        color: #ffffff;
-        border: none;
-        border-radius: 9px;
-        font-size: 12px;
-        font-weight: 600;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 6px;
-        box-shadow: 0 1px 3px rgba(37, 99, 235, 0.3);
-        transition: all 0.15s ease;
-      `;
-      routeBtn.innerHTML = "<span>🚗</span><span>Route ETA from My Location</span>";
-      routeBtn.onmouseenter = () => { routeBtn.style.background = "#1d4ed8"; };
-      routeBtn.onmouseleave = () => { routeBtn.style.background = "#2563eb"; };
+      routeBtn.style.cssText =
+        "width: 100%; padding: 8px 12px; background: #2563eb; color: #ffffff; border: none; border-radius: 9px; font-size: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 6px rgba(37, 99, 235, 0.35); transition: background 0.15s ease; margin-top: 4px;";
+      routeBtn.innerHTML = `<span>🚗</span><span>Route ETA from My Location</span>`;
+      routeBtn.onmouseenter = () => {
+        routeBtn.style.background = "#1d4ed8";
+      };
+      routeBtn.onmouseleave = () => {
+        routeBtn.style.background = "#2563eb";
+      };
       routeBtn.onclick = (e) => {
         e.stopPropagation();
-        routeBtn.innerHTML = `
-          <svg style="animation: spin 1s linear infinite; width: 13px; height: 13px; color: white;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="12" />
-          </svg>
-          <span>Calculating Road Route…</span>
-        `;
-        handleCalculateRoute(pt)
-          .then(() => {
-            // Auto close popup immediately when road route appears on map!
-            popup.remove();
-            if (activePopupRef.current === popup) {
-              activePopupRef.current = null;
-            }
-          })
-          .catch(() => {
-            routeBtn.innerHTML = "<span>🚗</span><span>Route ETA from My Location</span>";
-          });
+        popup.remove();
+        if (activePopupRef.current === popup) {
+          activePopupRef.current = null;
+        }
+        handleCalculateRoute(pt);
       };
-      actionsEl.appendChild(routeBtn);
-
-      popupContainer.appendChild(actionsEl);
+      popupContainer.appendChild(routeBtn);
 
       popup.setDOMContent(popupContainer);
 
@@ -800,7 +748,7 @@ export default function GeoapifyMapClient({
         onChange={setFilters}
         categories={categories}
         districts={districts}
-        areas={areas}
+        areas={areas || []}
         stats={{
           total: displayedPoints.length,
           located: displayedPoints.length,
@@ -836,13 +784,13 @@ export default function GeoapifyMapClient({
             className="w-full h-full min-h-[440px] sm:min-h-[540px] bg-slate-100 dark:bg-slate-900"
           />
 
-          {/* Floating Action Button: Scan Current Area for Restaurants */}
+          {/* Floating Action Button: Scan Current Area */}
           <div className="absolute top-4 left-4 z-20 flex flex-col gap-2">
             <button
               onClick={() => handleScanArea()}
               disabled={isScanning}
               className="px-4 py-2.5 rounded-xl bg-white/95 dark:bg-slate-900/95 hover:bg-white dark:hover:bg-slate-900 border border-slate-200 dark:border-slate-700/80 text-slate-800 dark:text-slate-100 shadow-xl backdrop-blur-md text-xs font-bold transition-all flex items-center gap-2 cursor-pointer active:scale-95 disabled:opacity-50"
-              title="Query Geoapify Places API for restaurants in the currently viewed map location"
+              title="Query hospitality businesses in the currently viewed map location"
             >
               {isScanning ? (
                 <>
@@ -863,12 +811,12 @@ export default function GeoapifyMapClient({
             <div className="px-3 py-2 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 backdrop-blur-md shadow-md flex items-center gap-3 text-[11px] font-semibold">
               <span className="flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block shadow-[0_0_6px_rgba(16,185,129,0.8)]" />
-                Ordered ({greenCount})
+                Clients ({greenCount})
               </span>
               <span className="text-slate-300 dark:text-slate-700">|</span>
               <span className="flex items-center gap-1.5 text-rose-700 dark:text-rose-400">
                 <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block shadow-[0_0_6px_rgba(239,68,68,0.8)]" />
-                No Orders / Leads ({redCount})
+                Leads ({redCount})
               </span>
             </div>
           </div>
@@ -932,7 +880,7 @@ export default function GeoapifyMapClient({
         <div className="flex flex-col gap-4">
           <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-              {selectedPoint?.isClient ? "Client Account Details" : "Selected Prospect (Lead)"}
+              Client Account Details
             </h3>
 
             {selectedPoint ? (
@@ -989,49 +937,29 @@ export default function GeoapifyMapClient({
                 </div>
 
                 <div className="flex flex-col gap-2 pt-1">
-                  {selectedPoint.isClient ? (
-                    <>
-                      <Link
-                        href={`/dashboard/businesses/${selectedPoint.id}`}
-                        className="w-full py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-center transition-all cursor-pointer"
-                      >
-                        View Account Invoices →
-                      </Link>
-                      <Link
-                        href="/dashboard/orders"
-                        className="w-full py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-center transition-all cursor-pointer"
-                      >
-                        Open Order Desk →
-                      </Link>
-                    </>
+                  {selectedPoint.markerColor === "green" ? (
+                    <Link
+                      href={`/dashboard/businesses/${selectedPoint.id}`}
+                      className="w-full py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-center transition-all cursor-pointer"
+                    >
+                      View Account &amp; Orders →
+                    </Link>
                   ) : (
-                    <>
-                      <button
-                        onClick={() => handleConvertProspect(selectedPoint)}
-                        disabled={convertingId === selectedPoint.id || isPending}
-                        className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
-                      >
-                        {convertingId === selectedPoint.id ? (
-                          <>
-                            <svg className="animate-spin w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <circle cx="12" cy="12" r="10" strokeDasharray="32" strokeDashoffset="12" />
-                            </svg>
-                            <span>Converting to Client…</span>
-                          </>
-                        ) : (
-                          <>
-                            <span>➕ Convert to Client</span>
-                          </>
-                        )}
-                      </button>
-
-                      <Link
-                        href="/dashboard/orders"
-                        className="w-full py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-center transition-all cursor-pointer"
-                      >
-                        Open Order Desk →
-                      </Link>
-                    </>
+                    <button
+                      onClick={() => setAddFromMapPreset({
+                        name: selectedPoint.name,
+                        category: selectedPoint.category,
+                        address: selectedPoint.address,
+                        area: selectedPoint.area,
+                        district: selectedPoint.district,
+                        latitude: selectedPoint.latitude,
+                        longitude: selectedPoint.longitude,
+                        phoneRaw: selectedPoint.phoneRaw,
+                      })}
+                      className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                    >
+                      ➕ Convert to Client
+                    </button>
                   )}
                 </div>
               </div>
@@ -1039,44 +967,46 @@ export default function GeoapifyMapClient({
               <div className="text-center py-10 px-4 space-y-2">
                 <span className="text-3xl">🗺️</span>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Click any <strong className="text-emerald-600">Green (Ordered)</strong> or <strong className="text-rose-600">Red (0 Orders)</strong> business on the map to inspect details, view route ETA, or create orders.
+                  Click any <strong className="text-emerald-600">Green</strong> or <strong className="text-rose-600">Red</strong> pin to inspect the business. Red pins can be converted to a client.
                 </p>
               </div>
             )}
           </div>
 
-          {/* Unlocated Client Businesses Accordion */}
-          {unlocatedClients.length > 0 && (
-            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm space-y-2.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
-                  <span>📍</span> Client GPS Pending ({unlocatedClients.length})
-                </span>
-                <span className="text-[10px] text-slate-400">Clients without GPS</span>
-              </div>
-              <div className="space-y-1.5 max-h-40 overflow-y-auto">
-                {unlocatedClients.map((ub) => (
-                  <div
-                    key={ub.id}
-                    className="p-2.5 bg-amber-50/60 dark:bg-slate-800/50 rounded-xl border border-amber-200 dark:border-amber-500/20 text-xs flex items-center justify-between"
-                  >
-                    <div className="min-w-0 pr-2">
-                      <div className="font-semibold text-slate-800 dark:text-slate-200 truncate">{ub.name}</div>
-                      <div className="text-[10px] text-slate-500">{ub.area || "Dhaka"}</div>
-                    </div>
-                    <Link
-                      href="/dashboard/businesses"
-                      className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 shrink-0 hover:underline"
-                    >
-                      Assign GPS
-                    </Link>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       </div>
+
+      {/* Add Business from Map Modal */}
+      {addFromMapPreset && (
+        <AddBusinessFromMapModal
+          preset={addFromMapPreset}
+          onClose={() => setAddFromMapPreset(null)}
+          onSuccess={(name, newId) => {
+            setConversionSuccess(`✅ "${name}" সফলভাবে নতুন বিজনেস হিসেবে তৈরি হয়েছে!`);
+            // Remove from prospect leads
+            setProspects((prev) => prev.filter((p) => p.name.toLowerCase() !== name.toLowerCase()));
+            // Add as registered DB client (0 orders -> red marker)
+            if (addFromMapPreset) {
+              const newClientPoint: UnifiedMapPoint = {
+                id: newId || `client_${Date.now()}`,
+                name: name,
+                category: addFromMapPreset.category || "Hospitality",
+                area: addFromMapPreset.area || "Dhaka",
+                district: addFromMapPreset.district || "Dhaka",
+                address: addFromMapPreset.address || "Address on record",
+                phoneRaw: addFromMapPreset.phoneRaw || null,
+                latitude: addFromMapPreset.latitude,
+                longitude: addFromMapPreset.longitude,
+                isClient: true,
+                orderCount: 0,
+                markerColor: "green",
+              };
+              setConvertedClients((prev) => [...prev, newClientPoint]);
+              setSelectedPoint(newClientPoint);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -80,13 +80,7 @@ export default function BusinessDetailClient({
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-3">
-              <span
-                className={`w-3 h-3 rounded-full ${
-                  business.isGreen
-                    ? "bg-emerald-500 shadow-[0_0_12px_rgba(34,197,94,0.6)]"
-                    : "bg-rose-500 shadow-[0_0_12px_rgba(239,68,68,0.6)]"
-                }`}
-              />
+              <span className="w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_12px_rgba(34,197,94,0.6)]" />
               <h1 className="text-2xl md:text-3xl font-bold text-slate-900 dark:text-slate-100">
                 {business.name}
               </h1>
@@ -120,7 +114,7 @@ export default function BusinessDetailClient({
               className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-semibold shadow-md shadow-blue-600/25 transition-all active:scale-95 cursor-pointer"
             >
               <Plus className="w-4 h-4" />
-              <span>+ New Order</span>
+              <span>New Order</span>
             </button>
 
             <Link
@@ -170,14 +164,8 @@ export default function BusinessDetailClient({
             <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
               Marker Status
             </span>
-            <p
-              className={`font-bold mt-1 text-sm ${
-                business.isGreen
-                  ? "text-emerald-600 dark:text-emerald-400"
-                  : "text-rose-600 dark:text-rose-400"
-              }`}
-            >
-              {business.isGreen ? "🟢 GREEN (≥1 order recorded)" : "🔴 RED (0 orders recorded)"}
+            <p className="font-bold mt-1 text-sm text-emerald-600 dark:text-emerald-400">
+              🟢 GREEN (Client in Database)
             </p>
           </div>
         </div>

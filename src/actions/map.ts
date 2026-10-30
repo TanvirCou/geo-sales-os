@@ -89,7 +89,7 @@ export async function getMapBusinesses(params?: MapFilterParams) {
     const lng = b.longitude ? Number(b.longitude) : null;
     const isLocated = lat !== null && lng !== null;
     const orderCount = b._count.orders;
-    const markerColor = orderCount > 0 ? "green" : "red";
+    const markerColor = "green"; // All registered company businesses in DB are GREEN clients
 
     return {
       id: b.id,
@@ -304,22 +304,10 @@ export async function convertProspectToClient(prospect: {
       },
     });
 
-    // Create an initial pending order for this prospect so they immediately count as client
-    await db.order.create({
-      data: {
-        businessId: newClient.id,
-        orderedAt: new Date(),
-        status: "PENDING",
-        source: "map_prospect_conversion",
-        externalOrderId: `ORD-${Math.floor(100000 + Math.random() * 900000)}`,
-      },
-    });
-
     revalidatePath("/dashboard/map");
     revalidatePath("/dashboard/map/geoapify");
     revalidatePath("/dashboard/map/google");
     revalidatePath("/dashboard/businesses");
-    revalidatePath("/dashboard/orders");
 
     return { success: true, businessId: newClient.id };
   } catch (err: any) {

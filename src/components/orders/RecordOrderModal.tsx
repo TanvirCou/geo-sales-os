@@ -52,7 +52,7 @@ export default function RecordOrderModal({
   // Order Details state
   const [formExtId, setFormExtId] = useState("");
   const [formDate, setFormDate] = useState(() => new Date().toISOString().split("T")[0]);
-  const [formStatus, setFormStatus] = useState<OrderStatus>(OrderStatus.COMPLETED);
+  const [formStatus, setFormStatus] = useState<OrderStatus | "">("" as OrderStatus | "");
   const [formError, setFormError] = useState<string | null>(null);
 
   // Line items state
@@ -78,21 +78,11 @@ export default function RecordOrderModal({
       setShowBusinessDropdown(false);
       setFormExtId(`ORD-${Date.now().toString().slice(-6)}`);
       setFormDate(new Date().toISOString().split("T")[0]);
-      setFormStatus(OrderStatus.COMPLETED);
+      setFormStatus("" as OrderStatus | "");
       setFormError(null);
 
-      // Default line item
-      if (products.length > 0) {
-        setFormItems([
-          {
-            productId: products[0].id,
-            quantity: 1,
-            unitPriceBdt: products[0].priceBdt || 0,
-          },
-        ]);
-      } else {
-        setFormItems([{ productId: "", quantity: 1, unitPriceBdt: 0 }]);
-      }
+      // Default line item: start with unselected product so user must explicitly choose
+      setFormItems([{ productId: "", quantity: 1, unitPriceBdt: 0 }]);
     }
   }, [isOpen, initialBusinessId, initialBusinessName, businesses, products]);
 
@@ -154,13 +144,12 @@ export default function RecordOrderModal({
   };
 
   const addItemRow = () => {
-    const defaultProd = products[0];
     setFormItems([
       ...formItems,
       {
-        productId: defaultProd?.id || "",
+        productId: "",
         quantity: 1,
-        unitPriceBdt: defaultProd?.priceBdt || 0,
+        unitPriceBdt: 0,
       },
     ]);
   };
@@ -178,6 +167,10 @@ export default function RecordOrderModal({
   const handleSaveOrder = () => {
     if (!selectedBusiness?.id) {
       setFormError("Please select a business for this order.");
+      return;
+    }
+    if (!formStatus) {
+      setFormError("Please select an order status.");
       return;
     }
     if (formItems.length === 0) {
@@ -204,7 +197,7 @@ export default function RecordOrderModal({
     const payload: OrderInput = {
       businessId: selectedBusiness.id,
       orderedAt: formDate ? new Date(formDate).toISOString() : null,
-      status: formStatus,
+      status: formStatus as OrderStatus,
       externalOrderId: formExtId.trim() || undefined,
       items: formItems.map((it) => {
         const prod = products.find((p) => p.id === it.productId);
@@ -389,11 +382,16 @@ export default function RecordOrderModal({
             </label>
             <select
               value={formStatus}
-              onChange={(e) => setFormStatus(e.target.value as OrderStatus)}
-              className="w-full px-3.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 shadow-sm"
+              onChange={(e) => setFormStatus(e.target.value as OrderStatus | "")}
+              className={`w-full px-3.5 py-2 bg-white dark:bg-slate-800 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 shadow-sm ${
+                formStatus === ""
+                  ? "border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-500"
+                  : "border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100"
+              }`}
             >
-              <option value={OrderStatus.COMPLETED}>Delivered (Completed)</option>
+              <option value="" disabled>— Select a Status —</option>
               <option value={OrderStatus.PENDING}>Pending</option>
+              <option value={OrderStatus.COMPLETED}>Delivered</option>
               <option value={OrderStatus.CANCELLED}>Cancelled</option>
             </select>
           </div>
@@ -427,10 +425,12 @@ export default function RecordOrderModal({
                     onChange={(e) => handleProductSelect(idx, e.target.value)}
                     className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-200 focus:outline-none focus:border-blue-500 shadow-sm"
                   >
-                    <option value="">Select a product…</option>
+                    <option value="" disabled>
+                      — Select a product —
+                    </option>
                     {products.map((p) => (
                       <option key={p.id} value={p.id}>
-                        {p.name} {p.unit ? `(${p.unit})` : ""} — BDT {p.priceBdt}
+                        {p.name}{p.unit ? ` (${p.unit})` : ""}
                       </option>
                     ))}
                   </select>

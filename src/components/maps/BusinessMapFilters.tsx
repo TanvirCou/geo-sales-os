@@ -13,7 +13,7 @@ interface FilterProps {
   onChange: (filters: MapFiltersState) => void;
   categories: string[];
   districts: string[];
-  areas: string[];
+  areas?: string[];
   stats: {
     total: number;
     located: number;
@@ -86,29 +86,15 @@ export default function BusinessMapFilters({
           ))}
         </select>
 
-        {/* Area / Locality */}
-        <select
-          value={filters.area}
-          onChange={(e) => onChange({ ...filters, area: e.target.value })}
-          className={selectCls}
-        >
-          <option value="ALL">All Localities / Areas</option>
-          {areas.map((a) => (
-            <option key={a} value={a}>
-              {a}
-            </option>
-          ))}
-        </select>
-
         {/* Marker Color Filter */}
         <select
           value={filters.orderColor}
           onChange={(e) => onChange({ ...filters, orderColor: e.target.value as any })}
           className={selectCls}
         >
-          <option value="ALL">All Markers (Ordered & Leads)</option>
-          <option value="GREEN">🟢 Ordered (1+ Orders)</option>
-          <option value="RED">🔴 0 Orders (Leads & Prospects)</option>
+          <option value="ALL">All Markers (Clients &amp; Leads)</option>
+          <option value="GREEN">🟢 Clients (In Database)</option>
+          <option value="RED">🔴 Leads / Prospects (Not in DB)</option>
         </select>
 
         {/* Reset button */}
@@ -128,19 +114,13 @@ export default function BusinessMapFilters({
 
         <span className="text-emerald-700 dark:text-emerald-400 font-medium flex items-center gap-1">
           <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
-          {stats.green} Ordered (Active Clients)
+          {stats.green} Clients (In Database)
         </span>
 
         <span className="text-rose-700 dark:text-rose-400 font-medium flex items-center gap-1">
           <span className="w-2 h-2 rounded-full bg-rose-500 inline-block" />
-          {stats.red} 0 Orders (Leads / Prospects)
+          {stats.red} Leads (Live Prospects)
         </span>
-
-        {stats.unlocated > 0 && (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20">
-            ⚠️ {stats.unlocated} Location Needed (No fake pin)
-          </span>
-        )}
       </div>
     </div>
   );

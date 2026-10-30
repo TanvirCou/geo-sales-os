@@ -57,6 +57,11 @@ export default function BusinessListClient({
 }) {
   const router = useRouter();
   const [businesses, setBusinesses] = useState<BusinessItem[]>(initialBusinesses);
+
+  useEffect(() => {
+    setBusinesses(initialBusinesses);
+  }, [initialBusinesses]);
+
   const [q, setQ] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("ALL");
   const [selectedDistrict, setSelectedDistrict] = useState("ALL");
@@ -361,8 +366,6 @@ export default function BusinessListClient({
 
   const filtered = businesses.filter((b) => {
     if (showArchived ? b.isActive : !b.isActive) return false;
-    // Client directory only lists businesses with at least 1 order
-    if (b.orderCount === 0) return false;
 
     if (selectedCategory !== "ALL" && b.category !== selectedCategory) return false;
     if (selectedDistrict !== "ALL" && b.district !== selectedDistrict) return false;

@@ -1,14 +1,15 @@
 import type { Metadata } from "next";
-import { getMapBusinesses } from "@/actions/map";
+import { getMapBusinesses, fetchLiveRestaurantProspects } from "@/actions/map";
 import { getBusinessFilterOptions } from "@/actions/businesses";
 import GoogleMapClient from "@/components/maps/GoogleMapClient";
 
 export const metadata: Metadata = { title: "Google Map — Business Sales" };
 
 export default async function GoogleMapPage() {
-  const [mapData, filterOptions] = await Promise.all([
+  const [mapData, filterOptions, initialProspectsData] = await Promise.all([
     getMapBusinesses(),
     getBusinessFilterOptions(),
+    fetchLiveRestaurantProspects({ lat: 23.7405, lon: 90.3846, radiusMeters: 4000 }).catch(() => ({ prospects: [] })),
   ]);
 
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "";
@@ -27,6 +28,7 @@ export default async function GoogleMapPage() {
 
       <GoogleMapClient
         initialBusinesses={mapData.businesses}
+        initialProspects={initialProspectsData.prospects || []}
         categories={filterOptions.categories}
         districts={filterOptions.districts}
         areas={filterOptions.areas}

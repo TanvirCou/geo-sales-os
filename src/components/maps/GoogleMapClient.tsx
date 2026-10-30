@@ -1,16 +1,11 @@
 "use client";
 
-import {
-    MapBusiness,
-    RestaurantProspect,
-    calculateGeoapifyRoute,
-    convertProspectToClient,
-    fetchLiveRestaurantProspects,
-} from "@/actions/map";
+import { MapBusiness, RestaurantProspect, calculateGeoapifyRoute, fetchLiveRestaurantProspects } from "@/actions/map";
 import Link from "next/link";
 import Script from "next/script";
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import BusinessMapFilters, { MapFiltersState } from "./BusinessMapFilters";
+import AddBusinessFromMapModal, { MapPointPreset } from "./AddBusinessFromMapModal";
 
 declare global {
   interface Window {
@@ -21,6 +16,7 @@ declare global {
 
 interface GoogleMapProps {
   initialBusinesses: MapBusiness[];
+  initialProspects?: RestaurantProspect[];
   categories: string[];
   districts: string[];
   areas: string[];
@@ -47,6 +43,7 @@ export interface UnifiedMapPoint {
 
 export default function GoogleMapClient({
   initialBusinesses,
+  initialProspects,
   categories,
   districts,
   areas,
@@ -67,12 +64,13 @@ export default function GoogleMapClient({
   const [routeInfo, setRouteInfo] = useState<{ distanceKm: number; durationMin: number } | null>(null);
   const [isRouting, setIsRouting] = useState(false);
 
-  // Live Prospects State
-  const [prospects, setProspects] = useState<RestaurantProspect[]>([]);
+  // Live Prospects / Leads State (Red Markers)
+  const [prospects, setProspects] = useState<RestaurantProspect[]>(initialProspects || []);
   const [isScanning, setIsScanning] = useState(false);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
-  const [convertingId, setConvertingId] = useState<string | null>(null);
+
+  // Add business from map modal preset
+  const [addFromMapPreset, setAddFromMapPreset] = useState<MapPointPreset | null>(null);
   const [conversionSuccess, setConversionSuccess] = useState<string | null>(null);
 
   // User live location state
@@ -89,12 +87,14 @@ export default function GoogleMapClient({
     orderColor: "ALL",
   });
 
+  // Live converted clients from map
+  const [convertedClients, setConvertedClients] = useState<UnifiedMapPoint[]>([]);
+
   // Client DB businesses transformed to unified points
   const clientPoints: UnifiedMapPoint[] = useMemo(() => {
-    return initialBusinesses
+    const base = initialBusinesses
       .filter((b) => b.latitude != null && b.longitude != null)
       .map((b) => {
-        const hasOrders = (b.orderCount || 0) > 0;
         return {
           id: b.id,
           name: b.name,
@@ -107,12 +107,13 @@ export default function GoogleMapClient({
           longitude: Number(b.longitude),
           isClient: true,
           orderCount: b.orderCount || 0,
-          markerColor: hasOrders ? ("green" as const) : ("red" as const),
+          markerColor: "green" as const, // In DB -> Green Client!
         };
       });
-  }, [initialBusinesses]);
+    return [...base, ...convertedClients];
+  }, [initialBusinesses, convertedClients]);
 
-  // Prospect points transformed to unified points
+  // Prospect points transformed to unified points (Red Markers)
   const prospectPoints: UnifiedMapPoint[] = useMemo(() => {
     return prospects
       .filter((p) => !p.isClient)
@@ -133,10 +134,9 @@ export default function GoogleMapClient({
       }));
   }, [prospects]);
 
-  // Combined and filtered points
+  // Combined and filtered points (Both Green DB clients & Red Prospects)
   const displayedPoints = useMemo(() => {
     const combined = [...clientPoints, ...prospectPoints];
-
     return combined.filter((pt) => {
       // Order color filter
       if (filters.orderColor === "GREEN" && pt.markerColor !== "green") return false;
@@ -172,36 +172,32 @@ export default function GoogleMapClient({
   const redCount = displayedPoints.filter((p) => p.markerColor === "red").length;
   const unlocatedClients = initialBusinesses.filter((b) => b.latitude == null || b.longitude == null);
 
-  // Scan live area for BD hospitality businesses
-  const handleScanArea = async (customLat?: number, customLon?: number) => {
+  // Scan live area for BD hospitality businesses (Hotels, Parlours, Food) within radius (default 3000m / 3km)
+  const handleScanArea = async (customLat?: number, customLon?: number, customRadius: number = 3000) => {
     setIsScanning(true);
     setScanMessage(null);
 
-    let lat = customLat || 23.7405;
-    let lon = customLon || 90.3846;
+    let lat: number = customLat ?? userLocation?.lat ?? 23.7405;
+    let lon: number = customLon ?? userLocation?.lng ?? 90.3846;
 
-    if (!customLat && mapInstanceRef.current) {
+    if (customLat == null && !userLocation && mapInstanceRef.current) {
       const center = mapInstanceRef.current.getCenter();
-      lat = center.lat();
-      lon = center.lng();
+      lat = typeof center.lat === "function" ? center.lat() : center.lat;
+      lon = typeof center.lng === "function" ? center.lng() : center.lng;
     }
 
     try {
       const result = await fetchLiveRestaurantProspects({
         lat,
         lon,
-        radiusMeters: 3000,
+        radiusMeters: customRadius,
       });
 
       if (result.error) {
         setScanMessage(`⚠️ ${result.error}`);
       } else if (result.prospects) {
-        setProspects((prev) => {
-          const existingIds = new Set(prev.map((p) => p.id));
-          const newUnique = result.prospects.filter((p: RestaurantProspect) => !existingIds.has(p.id));
-          return [...prev, ...newUnique];
-        });
-        setScanMessage(`✅ Found ${result.prospects.length} hospitality businesses in this area! Red pins are leads with 0 orders.`);
+        setProspects(result.prospects);
+        setScanMessage(`✅ আপনার বর্তমান লোকেশনের ৩ কিমি এর মধ্যে ${result.prospects.length} টি সম্ভাব্য বিজনেস (Red Mark) পাওয়া গেছে।`);
       }
     } catch (err: any) {
       setScanMessage(`❌ Scan failed: ${err.message}`);
@@ -210,34 +206,6 @@ export default function GoogleMapClient({
     }
   };
 
-  // Convert prospect lead to active client
-  const handleConvertProspect = async (point: UnifiedMapPoint) => {
-    setConvertingId(point.id);
-    startTransition(async () => {
-      const res = await convertProspectToClient({
-        name: point.name,
-        address: point.address,
-        category: point.category,
-        area: point.area,
-        district: point.district,
-        latitude: point.latitude,
-        longitude: point.longitude,
-        externalPlaceId: point.externalPlaceId,
-      });
-
-      setConvertingId(null);
-
-      if (res.success) {
-        setConversionSuccess(`🎉 "${point.name}" has been converted to an active Client! Initial order created.`);
-        setProspects((prev) =>
-          prev.map((p) => (p.id === point.id ? { ...p, isClient: true, markerColor: "green" } : p))
-        );
-        setSelectedPoint((prev) => (prev?.id === point.id ? { ...prev, isClient: true, markerColor: "green" } : prev));
-      } else {
-        alert(res.error || "Failed to convert prospect.");
-      }
-    });
-  };
 
   // Place pulsing dot on user location
   const placePulsingDot = useCallback((map: any, lat: number, lng: number) => {
@@ -280,7 +248,7 @@ export default function GoogleMapClient({
     });
 
     const infoWindow = new window.google.maps.InfoWindow({
-      content: `<div style="padding: 6px 10px; font-family: inherit; color: #0f172a; font-size: 12px; font-weight: 600;">📍 আপনি এখানে আছেন</div>`,
+      content: `<div class="map-popup-inner" style="min-width:auto;padding:6px 10px;"><span style="font-size:12px;font-weight:600;">📍 আপনি এখানে আছেন</span></div>`,
     });
 
     infoWindow.addListener("closeclick", () => {
@@ -306,7 +274,7 @@ export default function GoogleMapClient({
     userMarkerRef.current = marker;
   }, []);
 
-  // Fly to user's real location
+  // Fly to user's real location and scan 3km around
   const handleLocateMe = () => {
     if (!mapInstanceRef.current || !window.google) return;
     if (!navigator.geolocation) {
@@ -330,6 +298,7 @@ export default function GoogleMapClient({
         map.panTo({ lat, lng });
         map.setZoom(15);
         setIsLocating(false);
+        handleScanArea(lat, lng, 3000);
       },
       (err) => {
         setIsLocating(false);
@@ -343,18 +312,12 @@ export default function GoogleMapClient({
     );
   };
 
-  // Road Route calculation with seamless failover
-  // Calls real road routing action to compute genuine road geometry & ETA without hitting Google Legacy Directions API error
-  const handleCalculateRoute = async (targetPoint?: UnifiedMapPoint) => {
-    const pt = targetPoint || selectedPoint;
-    if (!pt || !mapInstanceRef.current || !window.google) return;
-
-    setSelectedPoint(pt);
-    setIsRouting(true);
-
+  // Helper to execute Google / Geoapify road route calculation
+  const executeGoogleRoute = async (startLat: number, startLng: number, pt: UnifiedMapPoint) => {
     const map = mapInstanceRef.current;
-    const startLat = userLocation?.lat ?? 23.7405;
-    const startLng = userLocation?.lng ?? 90.3846;
+    if (!map || !window.google) return;
+
+    setIsRouting(true);
     const destLat = pt.latitude;
     const destLng = pt.longitude;
 
@@ -368,7 +331,6 @@ export default function GoogleMapClient({
     }
 
     try {
-      // 1. Primary: Use real road routing service to draw road-following polyline
       const res = await calculateGeoapifyRoute({
         originLat: startLat,
         originLon: startLng,
@@ -383,7 +345,6 @@ export default function GoogleMapClient({
           durationMin: res.durationMin || 0,
         });
 
-        // Parse coordinates into Google Maps LatLng
         const coords: { lat: number; lng: number }[] = [];
         const geom = res.geojson.geometry;
         if (geom.type === "LineString") {
@@ -396,7 +357,6 @@ export default function GoogleMapClient({
           });
         }
 
-        // Draw genuine road Polyline on Google Map
         const polyline = new window.google.maps.Polyline({
           path: coords,
           geodesic: true,
@@ -407,7 +367,6 @@ export default function GoogleMapClient({
         });
         routePolylineRef.current = polyline;
 
-        // Fit Google Map bounds to show route perfectly
         const bounds = new window.google.maps.LatLngBounds();
         coords.forEach((c) => bounds.extend(c));
         bounds.extend({ lat: startLat, lng: startLng });
@@ -419,7 +378,6 @@ export default function GoogleMapClient({
       console.warn("Server road route had issue, checking DirectionsService fallback...", err);
     }
 
-    // 2. Secondary fallback: Attempt Google DirectionsService
     try {
       if (window.google.maps.DirectionsService) {
         const directionsService = new window.google.maps.DirectionsService();
@@ -446,8 +404,6 @@ export default function GoogleMapClient({
                 distanceKm: Math.round((leg.distance.value / 1000) * 10) / 10,
                 durationMin: Math.round(leg.duration.value / 60),
               });
-            } else {
-              alert(`Could not calculate route: ${status}. To use Google's native Directions, please enable "Directions API" in your Google Cloud Console.`);
             }
           }
         );
@@ -456,6 +412,45 @@ export default function GoogleMapClient({
       alert("Route error: " + err.message);
     } finally {
       setIsRouting(false);
+    }
+  };
+
+  // Road Route calculation starting from current user location
+  const handleCalculateRoute = async (targetPoint?: UnifiedMapPoint) => {
+    const pt = targetPoint || selectedPoint;
+    if (!pt || !mapInstanceRef.current || !window.google) return;
+
+    setSelectedPoint(pt);
+
+    // If userLocation is already available, calculate directly from user's current location!
+    if (userLocation) {
+      executeGoogleRoute(userLocation.lat, userLocation.lng, pt);
+      return;
+    }
+
+    // If userLocation is not yet set, obtain current position first then calculate route
+    if (navigator.geolocation) {
+      setIsRouting(true);
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          setUserLocation({ lat, lng });
+          if (mapInstanceRef.current) {
+            placePulsingDot(mapInstanceRef.current, lat, lng);
+          }
+          executeGoogleRoute(lat, lng, pt);
+        },
+        () => {
+          const center = mapInstanceRef.current?.getCenter();
+          const fallbackLat = center ? center.lat() : 23.7405;
+          const fallbackLng = center ? center.lng() : 90.3846;
+          executeGoogleRoute(fallbackLat, fallbackLng, pt);
+        },
+        { enableHighAccuracy: true, timeout: 6000 }
+      );
+    } else {
+      executeGoogleRoute(23.7405, 90.3846, pt);
     }
   };
 
@@ -469,6 +464,7 @@ export default function GoogleMapClient({
       directionsRendererRef.current.setMap(null);
     }
   };
+
 
   // Helper: Create custom Google Map pin icon (🟢 green check vs 🔴 red category emoji)
   const getMarkerIcon = (isGreen: boolean, category: string) => {
@@ -527,7 +523,7 @@ export default function GoogleMapClient({
       mapInstanceRef.current = map;
       setMapLoaded(true);
 
-      // Check user location on initial load
+      // Check user location on initial load and scan 3km around
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
           (pos) => {
@@ -536,15 +532,16 @@ export default function GoogleMapClient({
             setUserLocation({ lat, lng });
             placePulsingDot(map, lat, lng);
             map.setCenter({ lat, lng });
-            handleScanArea(lat, lng);
+            map.setZoom(15);
+            handleScanArea(lat, lng, 3000);
           },
           () => {
-            handleScanArea(23.7405, 90.3846);
+            handleScanArea(23.7405, 90.3846, 3000);
           },
           { enableHighAccuracy: true, timeout: 5000 }
         );
       } else {
-        handleScanArea(23.7405, 90.3846);
+        handleScanArea(23.7405, 90.3846, 3000);
       }
     };
 
@@ -581,29 +578,25 @@ export default function GoogleMapClient({
       });
 
       // Build InfoWindow HTML
-      // Rule: For red pins, omit the Hospitality Prospect badge completely!
-      // For green pins, keep the Ordered Client badge!
       // Note: Google's default close button (.gm-ui-hover-effect) is hidden via CSS,
       // so we inject our own custom close button inside the content.
       const infoContent = `
-        <div style="position: relative; padding: 14px 16px 14px 16px; font-family: inherit; color: #0f172a; min-width: 230px; max-width: 270px; box-sizing: border-box;">
+        <div class="map-popup-inner" style="position:relative;">
           <!-- Custom close button -->
           <button
             id="google-close-btn-${pt.id}"
             type="button"
-            style="position: absolute; top: 10px; right: 10px; width: 24px; height: 24px; border-radius: 50%; background: #f1f5f9; border: 1px solid #e2e8f0; color: #64748b; font-size: 14px; line-height: 24px; display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; outline: none; box-shadow: 0 1px 3px rgba(0,0,0,0.08); transition: all 0.18s ease; z-index: 2;"
-            onmouseenter="this.style.background='#fee2e2';this.style.borderColor='#fca5a5';this.style.color='#dc2626';"
-            onmouseleave="this.style.background='#f1f5f9';this.style.borderColor='#e2e8f0';this.style.color='#64748b';"
+            class="map-popup-close-btn"
           >✕</button>
           <!-- Business name -->
-          <div style="font-weight: 700; font-size: 14px; margin-bottom: 4px; padding-right: 28px; line-height: 1.35; color: #0f172a;">${pt.name}</div>
+          <div class="map-popup-title">${pt.name}</div>
           <!-- Category & address -->
-          <div style="font-size: 11.5px; color: #64748b; margin-bottom: ${isGreen ? "9px" : "12px"}; line-height: 1.5;">
+          <div class="map-popup-sub" style="margin-bottom:${isGreen ? "9px" : "12px"}">
             ${pt.category} • ${pt.address}
           </div>
           ${
             isGreen
-              ? `<div style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; font-size: 11px; font-weight: 700; border-radius: 9999px; margin-bottom: 11px; background: rgba(16, 185, 129, 0.12); color: #047857; border: 1px solid rgba(16,185,129,0.2);">
+              ? `<div class="map-popup-badge" style="margin-bottom:8px;">
                   🟢 Ordered Client (${pt.orderCount} Order${pt.orderCount > 1 ? "s" : ""})
                 </div>`
               : ""
@@ -612,7 +605,7 @@ export default function GoogleMapClient({
           <button
             id="google-route-btn-${pt.id}"
             type="button"
-            style="width: 100%; padding: 8px 12px; background: #2563eb; color: #ffffff; border: none; border-radius: 9px; font-size: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 6px rgba(37, 99, 235, 0.35); transition: background 0.15s ease;"
+            style="width: 100%; padding: 8px 12px; background: #2563eb; color: #ffffff; border: none; border-radius: 9px; font-size: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 6px rgba(37, 99, 235, 0.35); transition: background 0.15s ease; margin-top: 4px;"
             onmouseenter="this.style.background='#1d4ed8';"
             onmouseleave="this.style.background='#2563eb';"
           >
@@ -669,7 +662,6 @@ export default function GoogleMapClient({
           if (btn) {
             btn.onclick = (e) => {
               e.stopPropagation();
-              // Auto close popup immediately when road route is computed
               infoWindow.close();
               if (activeInfoWindowRef.current === infoWindow) {
                 activeInfoWindowRef.current = null;
@@ -808,12 +800,12 @@ export default function GoogleMapClient({
             <div className="px-3 py-2 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 backdrop-blur-md shadow-md flex items-center gap-3 text-[11px] font-semibold">
               <span className="flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block shadow-[0_0_6px_rgba(16,185,129,0.8)]" />
-                Ordered ({greenCount})
+                Clients ({greenCount})
               </span>
               <span className="text-slate-300 dark:text-slate-700">|</span>
               <span className="flex items-center gap-1.5 text-rose-700 dark:text-rose-400">
                 <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block shadow-[0_0_6px_rgba(239,68,68,0.8)]" />
-                No Orders / Leads ({redCount})
+                Leads ({redCount})
               </span>
             </div>
           </div>
@@ -877,7 +869,7 @@ export default function GoogleMapClient({
         <div className="flex flex-col gap-4">
           <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-              {selectedPoint?.isClient ? "Client Account Details" : "Selected Prospect (Lead)"}
+              Client Account Details
             </h3>
 
             {selectedPoint ? (
@@ -912,9 +904,7 @@ export default function GoogleMapClient({
                     >
                       {selectedPoint.markerColor === "green"
                         ? `🟢 Ordered (${selectedPoint.orderCount} Orders)`
-                        : selectedPoint.isClient
-                        ? "🔴 In DB (0 Orders)"
-                        : "🔴 New Prospect (0 Orders)"}
+                        : "🔴 No Orders (0 Orders)"}
                     </span>
                   </div>
 
@@ -934,49 +924,31 @@ export default function GoogleMapClient({
                 </div>
 
                 <div className="flex flex-col gap-2 pt-1">
-                  {selectedPoint.isClient ? (
-                    <>
-                      <Link
-                        href={`/dashboard/businesses/${selectedPoint.id}`}
-                        className="w-full py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-center transition-all cursor-pointer"
-                      >
-                        View Account Invoices →
-                      </Link>
-                      <Link
-                        href="/dashboard/orders"
-                        className="w-full py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-center transition-all cursor-pointer"
-                      >
-                        Open Order Desk →
-                      </Link>
-                    </>
+                  {selectedPoint.markerColor === "green" ? (
+                    <Link
+                      href={`/dashboard/businesses/${selectedPoint.id}`}
+                      className="w-full py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-center transition-all cursor-pointer"
+                    >
+                      View Account &amp; Orders →
+                    </Link>
                   ) : (
-                    <>
-                      <button
-                        onClick={() => handleConvertProspect(selectedPoint)}
-                        disabled={convertingId === selectedPoint.id || isPending}
-                        className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
-                      >
-                        {convertingId === selectedPoint.id ? (
-                          <>
-                            <svg className="animate-spin w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <circle cx="12" cy="12" r="10" strokeDasharray="32" strokeDashoffset="12" />
-                            </svg>
-                            <span>Converting to Client…</span>
-                          </>
-                        ) : (
-                          <>
-                            <span>➕ Convert to Client</span>
-                          </>
-                        )}
-                      </button>
-
-                      <Link
-                        href="/dashboard/orders"
-                        className="w-full py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-center transition-all cursor-pointer"
-                      >
-                        Open Order Desk →
-                      </Link>
-                    </>
+                    <button
+                      onClick={() =>
+                        setAddFromMapPreset({
+                          name: selectedPoint.name,
+                          category: selectedPoint.category,
+                          address: selectedPoint.address,
+                          area: selectedPoint.area,
+                          district: selectedPoint.district,
+                          latitude: selectedPoint.latitude,
+                          longitude: selectedPoint.longitude,
+                          phoneRaw: selectedPoint.phoneRaw,
+                        })
+                      }
+                      className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                    >
+                      ➕ Convert to Client
+                    </button>
                   )}
                 </div>
               </div>
@@ -984,44 +956,46 @@ export default function GoogleMapClient({
               <div className="text-center py-10 px-4 space-y-2">
                 <span className="text-3xl">🗺️</span>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Click any <strong className="text-emerald-600">Green (Ordered)</strong> or <strong className="text-rose-600">Red (0 Orders)</strong> business on the map to inspect details, view route ETA, or create orders.
+                  Click any <strong className="text-emerald-600">Green</strong> or <strong className="text-rose-600">Red</strong> pin to inspect the business. Red pins can be converted to a client.
                 </p>
               </div>
             )}
           </div>
 
-          {/* Unlocated Client Businesses Accordion */}
-          {unlocatedClients.length > 0 && (
-            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm space-y-2.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
-                  <span>📍</span> Client GPS Pending ({unlocatedClients.length})
-                </span>
-                <span className="text-[10px] text-slate-400">Clients without GPS</span>
-              </div>
-              <div className="space-y-1.5 max-h-40 overflow-y-auto">
-                {unlocatedClients.map((ub) => (
-                  <div
-                    key={ub.id}
-                    className="p-2.5 bg-amber-50/60 dark:bg-slate-800/50 rounded-xl border border-amber-200 dark:border-amber-500/20 text-xs flex items-center justify-between"
-                  >
-                    <div className="min-w-0 pr-2">
-                      <div className="font-semibold text-slate-800 dark:text-slate-200 truncate">{ub.name}</div>
-                      <div className="text-[10px] text-slate-500">{ub.area || "Dhaka"}</div>
-                    </div>
-                    <Link
-                      href="/dashboard/businesses"
-                      className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 shrink-0 hover:underline"
-                    >
-                      Assign GPS
-                    </Link>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       </div>
+
+      {/* Add Business from Map Modal */}
+      {addFromMapPreset && (
+        <AddBusinessFromMapModal
+          preset={addFromMapPreset}
+          onClose={() => setAddFromMapPreset(null)}
+          onSuccess={(name, newId) => {
+            setConversionSuccess(`✅ "${name}" সফলভাবে নতুন বিজনেস হিসেবে তৈরি হয়েছে!`);
+            // Remove from prospect leads
+            setProspects((prev) => prev.filter((p) => p.name.toLowerCase() !== name.toLowerCase()));
+            // Add as registered DB client (0 orders -> red marker)
+            if (addFromMapPreset) {
+              const newClientPoint: UnifiedMapPoint = {
+                id: newId || `client_${Date.now()}`,
+                name: name,
+                category: addFromMapPreset.category || "Hospitality",
+                area: addFromMapPreset.area || "Dhaka",
+                district: addFromMapPreset.district || "Dhaka",
+                address: addFromMapPreset.address || "Address on record",
+                phoneRaw: addFromMapPreset.phoneRaw || null,
+                latitude: addFromMapPreset.latitude,
+                longitude: addFromMapPreset.longitude,
+                isClient: true,
+                orderCount: 0,
+                markerColor: "green",
+              };
+              setConvertedClients((prev) => [...prev, newClientPoint]);
+              setSelectedPoint(newClientPoint);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
