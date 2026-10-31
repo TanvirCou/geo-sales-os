@@ -1,11 +1,12 @@
 "use client";
 
 import { MapBusiness, RestaurantProspect, calculateGeoapifyRoute, fetchLiveRestaurantProspects } from "@/actions/map";
+import { getDistrictCoordinates } from "@/lib/district-resolver";
 import Link from "next/link";
 import Script from "next/script";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import BusinessMapFilters, { MapFiltersState } from "./BusinessMapFilters";
 import AddBusinessFromMapModal, { MapPointPreset } from "./AddBusinessFromMapModal";
+import BusinessMapFilters, { MapFiltersState, UnifiedMapPoint } from "./BusinessMapFilters";
 
 declare global {
   interface Window {
@@ -20,24 +21,10 @@ interface GeoapifyMapProps {
   districts: string[];
   areas?: string[];
   apiKey?: string;
+  focusId?: string;
 }
 
-// Unified item interface for both Clients and Prospects
-export interface UnifiedMapPoint {
-  id: string;
-  name: string;
-  category: string;
-  area: string;
-  district: string;
-  address: string;
-  phoneRaw: string | null;
-  latitude: number;
-  longitude: number;
-  isClient: boolean;
-  orderCount: number;
-  markerColor: "green" | "red";
-  externalPlaceId?: string;
-}
+export { type UnifiedMapPoint } from "./BusinessMapFilters";
 
 export default function GeoapifyMapClient({
   initialBusinesses,
@@ -46,6 +33,7 @@ export default function GeoapifyMapClient({
   districts,
   areas,
   apiKey,
+  focusId,
 }: GeoapifyMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
@@ -53,7 +41,9 @@ export default function GeoapifyMapClient({
   const prospectMarkersRef = useRef<any[]>([]);
   const locationMarkerRef = useRef<any>(null);
   const activePopupRef = useRef<any>(null);
+  const popupsMapRef = useRef<Map<string, { popup: any; point: UnifiedMapPoint }>>(new Map());
   const isInitializingRef = useRef(false);
+  const pendingSelectedPointIdRef = useRef<string | null>(null);
 
   const [mapLoaded, setMapLoaded] = useState(false);
   const [selectedPoint, setSelectedPoint] = useState<UnifiedMapPoint | null>(null);
@@ -129,21 +119,24 @@ export default function GeoapifyMapClient({
       }));
   }, [prospects]);
 
-  // Apply client-side search & filters (Both Green DB clients & Red Prospects)
-  const displayedPoints = useMemo(() => {
+  // Candidate points strictly filtered by non-search filters (Category, District, Marker Color)
+  // These are both rendered on the map and used for search autocomplete suggestions!
+  const candidatePoints = useMemo(() => {
     const combined = [...clientPoints, ...prospectPoints];
     return combined.filter((pt) => {
       if (filters.orderColor === "GREEN" && pt.markerColor !== "green") return false;
       if (filters.orderColor === "RED" && pt.markerColor !== "red") return false;
       if (filters.category !== "ALL" && !pt.category.toLowerCase().includes(filters.category.toLowerCase())) return false;
-      if (filters.district !== "ALL" && pt.district !== filters.district) return false;
-      if (filters.q) {
-        const query = filters.q.toLowerCase();
-        if (!pt.name.toLowerCase().includes(query) && !pt.address.toLowerCase().includes(query) && !pt.category.toLowerCase().includes(query)) return false;
-      }
+      // District filter: only apply to DB clients — prospect/red markers are geo-scanned
+      // around the district center so they naturally belong there; hardcoded district field
+      // on them is always "Dhaka" regardless of where they are.
+      if (filters.district !== "ALL" && pt.isClient && pt.district !== filters.district) return false;
       return true;
     });
-  }, [clientPoints, prospectPoints, filters]);
+  }, [clientPoints, prospectPoints, filters.orderColor, filters.category, filters.district]);
+
+  // Points displayed on map (respects the active combined filters)
+  const displayedPoints = candidatePoints;
 
   const greenCount = displayedPoints.filter((p) => p.markerColor === "green").length;
   const redCount = displayedPoints.filter((p) => p.markerColor === "red").length;
@@ -264,10 +257,35 @@ export default function GeoapifyMapClient({
   };
 
   // Fly to user's current location, place pulsing blue dot, and scan 3km around
+  // Fly to user's real location and scan 3km around (Scan Nearby Area)
   const handleLocateMe = () => {
     if (!mapInstanceRef.current || !window.maplibregl) return;
+    const map = mapInstanceRef.current;
+
+    setFilters({
+      q: "",
+      category: "ALL",
+      district: "ALL",
+      area: "ALL",
+      orderColor: "ALL",
+    });
+    setRouteInfo(null);
+
+    // If userLocation is already cached, immediately fly there and scan
+    if (userLocation) {
+      placePulsingDot(map, userLocation.lat, userLocation.lng);
+      map.flyTo({
+        center: [userLocation.lng, userLocation.lat],
+        zoom: 15,
+        speed: 1.4,
+      });
+      handleScanArea(userLocation.lat, userLocation.lng, 3000);
+    }
+
     if (!navigator.geolocation) {
-      setLocationError("⚠️ Geolocation is not supported by your browser.");
+      if (!userLocation) {
+        setLocationError("⚠️ Geolocation is not supported by your browser.");
+      }
       return;
     }
 
@@ -277,7 +295,6 @@ export default function GeoapifyMapClient({
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const { latitude, longitude } = position.coords;
-        const map = mapInstanceRef.current;
         if (!map) return;
 
         placePulsingDot(map, latitude, longitude);
@@ -285,7 +302,7 @@ export default function GeoapifyMapClient({
 
         map.flyTo({
           center: [longitude, latitude],
-          zoom: 14.5,
+          zoom: 15,
           speed: 1.4,
           curve: 1.4,
         });
@@ -295,10 +312,12 @@ export default function GeoapifyMapClient({
       },
       (err) => {
         setIsLocating(false);
-        if (err.code === 1) {
-          setLocationError("⚠️ Location permission denied. Please allow location access in your browser.");
-        } else {
-          setLocationError(`⚠️ Could not get your location: ${err.message}`);
+        if (!userLocation) {
+          if (err.code === 1) {
+            setLocationError("⚠️ Location permission denied. Please allow location access in your browser.");
+          } else {
+            setLocationError(`⚠️ Could not get your location: ${err.message}`);
+          }
         }
       },
       { enableHighAccuracy: true, timeout: 8000 }
@@ -396,6 +415,12 @@ export default function GeoapifyMapClient({
         handleScanArea(centerLat, centerLng, 3000);
       });
     };
+
+    const targetPoint = focusId ? initialBusinesses.find((b) => b.id === focusId) : null;
+    if (targetPoint && targetPoint.latitude != null && targetPoint.longitude != null) {
+      buildMap(Number(targetPoint.latitude), Number(targetPoint.longitude), false);
+      return;
+    }
 
     // Try to get real location first
     if (navigator.geolocation) {
@@ -577,20 +602,23 @@ export default function GeoapifyMapClient({
 
     const map = mapInstanceRef.current;
 
-    // Clear old markers and close any lingering popups
-    if (activePopupRef.current) {
+    // Clear old markers and close any lingering popups (unless pending selected point)
+    if (activePopupRef.current && !pendingSelectedPointIdRef.current) {
       try {
         activePopupRef.current.remove();
       } catch (e) {}
       activePopupRef.current = null;
     }
-    const lingeringPopups = mapContainerRef.current?.querySelectorAll(".maplibregl-popup");
-    lingeringPopups?.forEach((p) => p.remove());
+    if (!pendingSelectedPointIdRef.current) {
+      const lingeringPopups = mapContainerRef.current?.querySelectorAll(".maplibregl-popup");
+      lingeringPopups?.forEach((p) => p.remove());
+    }
 
     clientMarkersRef.current.forEach((m) => m.remove());
     clientMarkersRef.current = [];
     prospectMarkersRef.current.forEach((m) => m.remove());
     prospectMarkersRef.current = [];
+    popupsMapRef.current.clear();
 
     displayedPoints.forEach((pt) => {
       const isGreen = pt.markerColor === "green";
@@ -728,8 +756,117 @@ export default function GeoapifyMapClient({
       } else {
         prospectMarkersRef.current.push(marker);
       }
+
+      popupsMapRef.current.set(pt.id, { popup, point: pt });
+
+      // If this is the focused business from URL OR pending selected from search, auto-center and open popup!
+      const isPendingFromSearch = pendingSelectedPointIdRef.current === pt.id;
+      const isFocusFromUrl = focusId && pt.id === focusId;
+
+      if (isPendingFromSearch || isFocusFromUrl) {
+        if (isPendingFromSearch) {
+          pendingSelectedPointIdRef.current = null;
+        }
+        if (activePopupRef.current) {
+          try {
+            activePopupRef.current.remove();
+          } catch (err) {}
+          activePopupRef.current = null;
+        }
+        popup.setLngLat([pt.longitude, pt.latitude]).addTo(map);
+        activePopupRef.current = popup;
+        setSelectedPoint(pt);
+        map.flyTo({
+          center: [pt.longitude, pt.latitude],
+          zoom: 16,
+          speed: 1.4,
+        });
+      }
     });
-  }, [mapLoaded, displayedPoints]);
+  }, [mapLoaded, displayedPoints, focusId]);
+
+  // Focus on business selected from search dropdown & open its popup
+  const handleSelectBusinessFromSearch = useCallback((pt: UnifiedMapPoint) => {
+    if (!mapInstanceRef.current || !window.maplibregl) return;
+    const map = mapInstanceRef.current;
+
+    // Always update sidebar immediately
+    setSelectedPoint(pt);
+
+    // Check if marker already exists by id OR by close coordinates
+    let record = popupsMapRef.current.get(pt.id);
+    if (!record) {
+      for (const entry of popupsMapRef.current.values()) {
+        if (
+          Math.abs(entry.point.latitude - pt.latitude) < 0.0001 &&
+          Math.abs(entry.point.longitude - pt.longitude) < 0.0001
+        ) {
+          record = entry;
+          break;
+        }
+      }
+    }
+
+    if (record) {
+      pendingSelectedPointIdRef.current = null;
+      map.flyTo({ center: [pt.longitude, pt.latitude], zoom: 16, speed: 1.4, essential: true });
+      map.once("moveend", () => {
+        if (activePopupRef.current && activePopupRef.current !== record!.popup) {
+          try { activePopupRef.current.remove(); } catch (err) {}
+        }
+        record!.popup.setLngLat([pt.longitude, pt.latitude]).addTo(map);
+        activePopupRef.current = record!.popup;
+      });
+    } else {
+      pendingSelectedPointIdRef.current = pt.id;
+      map.flyTo({ center: [pt.longitude, pt.latitude], zoom: 16, speed: 1.4, essential: true });
+
+      if (!pt.isClient) {
+        setProspects((prev) => {
+          if (prev.some((p) => p.id === pt.id || (Math.abs(p.latitude - pt.latitude) < 0.0001 && Math.abs(p.longitude - pt.longitude) < 0.0001))) {
+            return prev;
+          }
+          return [
+            ...prev,
+            {
+              id: pt.id,
+              name: pt.name,
+              category: pt.category,
+              address: pt.address,
+              phoneRaw: pt.phoneRaw || undefined,
+              latitude: pt.latitude,
+              longitude: pt.longitude,
+              isClient: false,
+              orderCount: 0,
+              markerColor: "red",
+            },
+          ];
+        });
+      }
+    }
+  }, [handleCalculateRoute]);
+
+
+  // Filter change handler — intercepts district changes to fly map to district center
+  const handleFiltersChange = useCallback((newFilters: MapFiltersState) => {
+    setFilters(newFilters);
+
+    // When district changes: fly to that district & scan nearby prospects
+    if (newFilters.district !== filters.district && newFilters.district !== "ALL") {
+      const coords = getDistrictCoordinates(newFilters.district);
+      if (coords && mapInstanceRef.current) {
+        mapInstanceRef.current.flyTo({
+          center: [coords.lng, coords.lat],
+          zoom: 12,
+          speed: 1.4,
+          curve: 1.3,
+          essential: true,
+        });
+        // Scan prospects in that district area
+        handleScanArea(coords.lat, coords.lng, 8000);
+      }
+    }
+  }, [filters.district]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -742,13 +879,15 @@ export default function GeoapifyMapClient({
         href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css"
       />
 
-      {/* Filter and Overview Controls */}
+      {/* Filter and Overview Controls with Autocomplete Dropdown */}
       <BusinessMapFilters
         filters={filters}
-        onChange={setFilters}
+        onChange={handleFiltersChange}
         categories={categories}
         districts={districts}
         areas={areas || []}
+        candidateBusinesses={candidatePoints}
+        onSelectBusiness={handleSelectBusinessFromSearch}
         stats={{
           total: displayedPoints.length,
           located: displayedPoints.length,
@@ -784,25 +923,25 @@ export default function GeoapifyMapClient({
             className="w-full h-full min-h-[440px] sm:min-h-[540px] bg-slate-100 dark:bg-slate-900"
           />
 
-          {/* Floating Action Button: Scan Current Area */}
+          {/* Floating Action Button: Scan Nearby Area */}
           <div className="absolute top-4 left-4 z-20 flex flex-col gap-2">
             <button
-              onClick={() => handleScanArea()}
-              disabled={isScanning}
+              onClick={handleLocateMe}
+              disabled={isScanning || isLocating}
               className="px-4 py-2.5 rounded-xl bg-white/95 dark:bg-slate-900/95 hover:bg-white dark:hover:bg-slate-900 border border-slate-200 dark:border-slate-700/80 text-slate-800 dark:text-slate-100 shadow-xl backdrop-blur-md text-xs font-bold transition-all flex items-center gap-2 cursor-pointer active:scale-95 disabled:opacity-50"
-              title="Query hospitality businesses in the currently viewed map location"
+              title="Fly to your current location and scan 3km nearby area"
             >
-              {isScanning ? (
+              {isScanning || isLocating ? (
                 <>
                   <svg className="animate-spin w-4 h-4 text-blue-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <circle cx="12" cy="12" r="10" strokeDasharray="32" strokeDashoffset="12" />
                   </svg>
-                  <span>Scanning Area…</span>
+                  <span>Scanning…</span>
                 </>
               ) : (
                 <>
-                  <span className="text-sm">🔍</span>
-                  <span>Scan Area (Hotels, Parlours, Food)</span>
+                  <span className="text-sm">📡</span>
+                  <span>Scan Nearby Area</span>
                 </>
               )}
             </button>

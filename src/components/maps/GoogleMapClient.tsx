@@ -1,11 +1,12 @@
 "use client";
 
 import { MapBusiness, RestaurantProspect, calculateGeoapifyRoute, fetchLiveRestaurantProspects } from "@/actions/map";
+import { getDistrictCoordinates } from "@/lib/district-resolver";
 import Link from "next/link";
 import Script from "next/script";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import BusinessMapFilters, { MapFiltersState } from "./BusinessMapFilters";
 import AddBusinessFromMapModal, { MapPointPreset } from "./AddBusinessFromMapModal";
+import BusinessMapFilters, { MapFiltersState, UnifiedMapPoint } from "./BusinessMapFilters";
 
 declare global {
   interface Window {
@@ -22,23 +23,48 @@ interface GoogleMapProps {
   areas: string[];
   apiKey?: string;
   mapId?: string;
+  focusId?: string;
 }
 
-// Unified item interface for both Clients and Prospects (matches Geoapify)
-export interface UnifiedMapPoint {
-  id: string;
-  name: string;
-  category: string;
-  area: string;
-  district: string;
-  address: string;
-  phoneRaw: string | null;
-  latitude: number;
-  longitude: number;
-  isClient: boolean;
-  orderCount: number;
-  markerColor: "green" | "red";
-  externalPlaceId?: string;
+export { type UnifiedMapPoint } from "./BusinessMapFilters";
+
+function buildGoogleInfoWindowHtml(pt: UnifiedMapPoint, closeBtnId: string, routeBtnId: string) {
+  const isGreen = pt.markerColor === "green";
+  return `
+    <div class="map-popup-inner" style="position:relative;">
+      <!-- Custom close button -->
+      <button
+        id="${closeBtnId}"
+        type="button"
+        class="map-popup-close-btn"
+      >✕</button>
+      <!-- Business name -->
+      <div class="map-popup-title">${pt.name}</div>
+      <!-- Category & address -->
+      <div class="map-popup-sub" style="margin-bottom:${isGreen ? "9px" : "12px"}">
+        ${pt.category} • ${pt.address}
+      </div>
+      ${
+        isGreen
+          ? `<div class="map-popup-badge" style="margin-bottom:8px;">
+              🟢 Ordered Client (${pt.orderCount} Order${pt.orderCount > 1 ? "s" : ""})
+            </div>`
+          : `<div class="map-popup-badge-red" style="margin-bottom:8px;">
+              🔴 Lead / Prospect (0 Orders)
+            </div>`
+      }
+      <!-- Route button -->
+      <button
+        id="${routeBtnId}"
+        type="button"
+        style="width: 100%; padding: 8px 12px; background: #2563eb; color: #ffffff; border: none; border-radius: 9px; font-size: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 6px rgba(37, 99, 235, 0.35); transition: background 0.15s ease; margin-top: 4px;"
+        onmouseenter="this.style.background='#1d4ed8';"
+        onmouseleave="this.style.background='#2563eb';"
+      >
+        <span>🚗</span><span>Route ETA from My Location</span>
+      </button>
+    </div>
+  `;
 }
 
 export default function GoogleMapClient({
@@ -49,15 +75,23 @@ export default function GoogleMapClient({
   areas,
   apiKey,
   mapId,
+  focusId,
 }: GoogleMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
-  const markersRef = useRef<any[]>([]);
+  const clientMarkersRef = useRef<any[]>([]);
+  const prospectMarkersRef = useRef<any[]>([]);
   const activeInfoWindowRef = useRef<any>(null);
+  const singleInfoWindowRef = useRef<any>(null);
+  const iconCacheRef = useRef<Map<string, any>>(new Map());
+  const markersMapRef = useRef<Map<string, { marker: any; point: UnifiedMapPoint }>>(new Map());
   const userMarkerRef = useRef<any>(null);
   const userCircleRef = useRef<any>(null);
   const routePolylineRef = useRef<any>(null);
   const directionsRendererRef = useRef<any>(null);
+  const pendingSelectedPointIdRef = useRef<string | null>(null);
+  const currentOpenPointIdRef = useRef<string | null>(null);
+  const flightAnimationRef = useRef<number | null>(null);
 
   const [mapLoaded, setMapLoaded] = useState(false);
   const [selectedPoint, setSelectedPoint] = useState<UnifiedMapPoint | null>(null);
@@ -134,8 +168,9 @@ export default function GoogleMapClient({
       }));
   }, [prospects]);
 
-  // Combined and filtered points (Both Green DB clients & Red Prospects)
-  const displayedPoints = useMemo(() => {
+  // Combined candidate points strictly filtered by non-search filters (Category, District, Marker Color)
+  // These are both rendered on the map and used for search autocomplete suggestions!
+  const candidatePoints = useMemo(() => {
     const combined = [...clientPoints, ...prospectPoints];
     return combined.filter((pt) => {
       // Order color filter
@@ -150,23 +185,19 @@ export default function GoogleMapClient({
         return false;
       }
 
-      // District filter
-      if (filters.district !== "ALL" && pt.district !== filters.district) {
+      // District filter: only apply to DB clients — prospect/red markers are geo-scanned
+      // around the district center so they naturally belong there; hardcoded district field
+      // on them is always "Dhaka" regardless of where they are.
+      if (filters.district !== "ALL" && pt.isClient && pt.district !== filters.district) {
         return false;
-      }
-
-      // Search query filter
-      if (filters.q) {
-        const query = filters.q.toLowerCase();
-        const matchName = pt.name.toLowerCase().includes(query);
-        const matchAddr = pt.address.toLowerCase().includes(query);
-        const matchCat = pt.category.toLowerCase().includes(query);
-        if (!matchName && !matchAddr && !matchCat) return false;
       }
 
       return true;
     });
-  }, [clientPoints, prospectPoints, filters]);
+  }, [clientPoints, prospectPoints, filters.orderColor, filters.category, filters.district]);
+
+  // Points displayed on map (respects the active combined filters)
+  const displayedPoints = candidatePoints;
 
   const greenCount = displayedPoints.filter((p) => p.markerColor === "green").length;
   const redCount = displayedPoints.filter((p) => p.markerColor === "red").length;
@@ -218,31 +249,18 @@ export default function GoogleMapClient({
       userCircleRef.current = null;
     }
 
-    // Outer radar circle
-    const circle = new window.google.maps.Circle({
-      map,
-      center: { lat, lng },
-      radius: 120,
-      fillColor: "#3b82f6",
-      fillOpacity: 0.18,
-      strokeColor: "#3b82f6",
-      strokeOpacity: 0.5,
-      strokeWeight: 1.5,
-    });
-    userCircleRef.current = circle;
-
-    // Center blue dot
+    // Crisp native blue location dot (no semi-transparent overlay circle)
     const marker = new window.google.maps.Marker({
       position: { lat, lng },
       map,
       title: "আপনি এখানে আছেন (My Location)",
       icon: {
         path: window.google.maps.SymbolPath.CIRCLE,
-        scale: 9,
-        fillColor: "#3b82f6",
+        scale: 8,
+        fillColor: "#2563eb",
         fillOpacity: 1,
         strokeColor: "#ffffff",
-        strokeWeight: 3,
+        strokeWeight: 2.5,
       },
       zIndex: 9999,
     });
@@ -274,42 +292,181 @@ export default function GoogleMapClient({
     userMarkerRef.current = marker;
   }, []);
 
-  // Fly to user's real location and scan 3km around
+  // Smooth cinematic flyTo animation for Google Maps (matches MapLibre flyTo experience)
+  const flyToGoogleMap = useCallback(
+    (
+      map: any,
+      targetLat: number,
+      targetLng: number,
+      targetZoom: number = 16,
+      options?: {
+        duration?: number;
+        onComplete?: () => void;
+      }
+    ) => {
+      if (!map || !window.google) return;
+
+      // Cancel any running flight animation
+      if (flightAnimationRef.current !== null) {
+        cancelAnimationFrame(flightAnimationRef.current);
+        flightAnimationRef.current = null;
+      }
+
+      const startCenter = map.getCenter();
+      if (!startCenter) {
+        map.setCenter({ lat: targetLat, lng: targetLng });
+        map.setZoom(targetZoom);
+        options?.onComplete?.();
+        return;
+      }
+
+      const startLat = startCenter.lat();
+      const startLng = startCenter.lng();
+      const startZoom = typeof map.getZoom === "function" ? map.getZoom() : 14;
+
+      const dLat = targetLat - startLat;
+      const dLng = targetLng - startLng;
+      const distanceDeg = Math.sqrt(dLat * dLat + dLng * dLng);
+
+      // If already at the exact spot and zoom, complete immediately
+      if (distanceDeg < 0.00005 && Math.abs(targetZoom - startZoom) < 0.3) {
+        options?.onComplete?.();
+        return;
+      }
+
+      // Dynamic duration based on travel distance (600ms - 1300ms)
+      const duration =
+        options?.duration ||
+        (distanceDeg > 0.3 ? 1250 : distanceDeg > 0.05 ? 950 : 650);
+
+      // Parabolic zoom curve: zoom out slightly mid-flight for bird's-eye perspective (like MapLibre)
+      const isFar = distanceDeg > 0.015;
+      const minZoom = Math.min(startZoom, targetZoom);
+      let dipZoom = minZoom;
+      if (distanceDeg > 0.4) {
+        dipZoom = Math.max(7, minZoom - 4);
+      } else if (distanceDeg > 0.1) {
+        dipZoom = Math.max(9, minZoom - 2.5);
+      } else if (isFar) {
+        dipZoom = Math.max(11, minZoom - 1.5);
+      }
+
+      const startTime = performance.now();
+
+      // Smooth cubic ease-in-out curve
+      const easeInOutCubic = (t: number) =>
+        t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+      const animate = (currentTime: number) => {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const ease = easeInOutCubic(progress);
+
+        const curLat = startLat + dLat * ease;
+        const curLng = startLng + dLng * ease;
+
+        let curZoom = startZoom + (targetZoom - startZoom) * ease;
+        if (isFar) {
+          if (progress < 0.5) {
+            const p = easeInOutCubic(progress * 2);
+            curZoom = startZoom + (dipZoom - startZoom) * p;
+          } else {
+            const p = easeInOutCubic((progress - 0.5) * 2);
+            curZoom = dipZoom + (targetZoom - dipZoom) * p;
+          }
+        }
+
+        if (typeof map.moveCamera === "function") {
+          map.moveCamera({
+            center: { lat: curLat, lng: curLng },
+            zoom: curZoom,
+          });
+        } else {
+          map.setCenter({ lat: curLat, lng: curLng });
+          map.setZoom(Math.round(curZoom));
+        }
+
+        if (progress < 1) {
+          flightAnimationRef.current = requestAnimationFrame(animate);
+        } else {
+          flightAnimationRef.current = null;
+          if (typeof map.moveCamera === "function") {
+            map.moveCamera({ center: { lat: targetLat, lng: targetLng }, zoom: targetZoom });
+          } else {
+            map.setCenter({ lat: targetLat, lng: targetLng });
+            map.setZoom(targetZoom);
+          }
+          options?.onComplete?.();
+        }
+      };
+
+      flightAnimationRef.current = requestAnimationFrame(animate);
+    },
+    []
+  );
+
+  // Fly/pan to user's real location, reset filters, and scan 3km around (Scan Nearby Area)
   const handleLocateMe = () => {
     if (!mapInstanceRef.current || !window.google) return;
-    if (!navigator.geolocation) {
-      setLocationError("⚠️ Geolocation is not supported by your browser.");
-      return;
+    const map = mapInstanceRef.current;
+
+    // Reset all filters so that all nearby client businesses and leads are visible
+    setFilters({
+      q: "",
+      category: "ALL",
+      district: "ALL",
+      area: "ALL",
+      orderColor: "ALL",
+    });
+    setRouteInfo(null);
+
+    const executeLocateAndScan = (lat: number, lng: number) => {
+      setUserLocation({ lat, lng });
+      placePulsingDot(map, lat, lng);
+      window.google.maps.event.trigger(map, "resize");
+      flyToGoogleMap(map, lat, lng, 15, {
+        onComplete: () => {
+          handleScanArea(lat, lng, 3000);
+        },
+      });
+    };
+
+    if (userLocation) {
+      executeLocateAndScan(userLocation.lat, userLocation.lng);
     }
 
-    setIsLocating(true);
-    setLocationError(null);
+    if (navigator.geolocation) {
+      setIsLocating(true);
+      setLocationError(null);
 
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-        const map = mapInstanceRef.current;
-        if (!map) return;
-
-        setUserLocation({ lat, lng });
-        placePulsingDot(map, lat, lng);
-
-        map.panTo({ lat, lng });
-        map.setZoom(15);
-        setIsLocating(false);
-        handleScanArea(lat, lng, 3000);
-      },
-      (err) => {
-        setIsLocating(false);
-        if (err.code === 1) {
-          setLocationError("⚠️ Location permission denied. Please allow location access in your browser.");
-        } else {
-          setLocationError(`⚠️ Could not get your location: ${err.message}`);
-        }
-      },
-      { enableHighAccuracy: true, timeout: 8000 }
-    );
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setIsLocating(false);
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          if (!map) return;
+          // Re-scan only if we didn't have userLocation or if moved by >50 meters
+          if (!userLocation || Math.abs(userLocation.lat - lat) > 0.0005 || Math.abs(userLocation.lng - lng) > 0.0005) {
+            executeLocateAndScan(lat, lng);
+          } else {
+            placePulsingDot(map, lat, lng);
+          }
+        },
+        (err) => {
+          setIsLocating(false);
+          if (!userLocation) {
+            if (err.code === 1) {
+              setLocationError("⚠️ Location permission denied. Please allow location access in your browser.");
+            } else {
+              setLocationError(`⚠️ Could not get your location: ${err.message}`);
+            }
+          }
+        },
+        { enableHighAccuracy: true, timeout: 8000 }
+      );
+    } else if (!userLocation) {
+      setLocationError("⚠️ Geolocation is not supported by your browser.");
+    }
   };
 
   // Helper to execute Google / Geoapify road route calculation
@@ -466,8 +623,10 @@ export default function GoogleMapClient({
   };
 
 
-  // Helper: Create custom Google Map pin icon (🟢 green check vs 🔴 red category emoji)
-  const getMarkerIcon = (isGreen: boolean, category: string) => {
+  // Helper: Create custom Google Map pin icon (cached by isGreen + icon emoji)
+  const getMarkerIcon = useCallback((isGreen: boolean, category: string) => {
+    if (!window.google) return undefined;
+
     const catLower = category.toLowerCase();
     const icon = isGreen
       ? "✓"
@@ -478,6 +637,11 @@ export default function GoogleMapClient({
       : catLower.includes("cafe")
       ? "☕"
       : "🍽️";
+
+    const cacheKey = `${isGreen ? "green" : "red"}_${icon}`;
+    if (iconCacheRef.current.has(cacheKey)) {
+      return iconCacheRef.current.get(cacheKey);
+    }
 
     const color = isGreen ? "#10b981" : "#ef4444";
     const size = isGreen ? 28 : 26;
@@ -490,27 +654,41 @@ export default function GoogleMapClient({
       </svg>
     `;
 
-    return {
+    const iconObj = {
       url: "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(svg.trim()),
       scaledSize: new window.google.maps.Size(size, size),
       anchor: new window.google.maps.Point(size / 2, size / 2),
     };
-  };
+
+    iconCacheRef.current.set(cacheKey, iconObj);
+    return iconObj;
+  }, []);
 
   // Initialize Google Map
   useEffect(() => {
     window.initGoogleMapCallback = () => {
       if (!window.google || !mapContainerRef.current || mapInstanceRef.current) return;
 
-      const dhakaCenter = { lat: 23.7405, lng: 90.3846 };
-      const map = new window.google.maps.Map(mapContainerRef.current, {
-        center: dhakaCenter,
-        zoom: 13,
-        mapId: mapId || "DEMO_MAP_ID",
+      const targetPoint = focusId ? initialBusinesses.find((b) => b.id === focusId) : null;
+      const initialCenter =
+        targetPoint && targetPoint.latitude != null && targetPoint.longitude != null
+          ? { lat: Number(targetPoint.latitude), lng: Number(targetPoint.longitude) }
+          : { lat: 23.7405, lng: 90.3846 };
+      const initialZoom = targetPoint ? 16 : 13;
+
+      const mapOptions: any = {
+        center: initialCenter,
+        zoom: initialZoom,
+        isFractionalZoomEnabled: true,
         mapTypeControl: false,
         streetViewControl: false,
         fullscreenControl: false,
-      });
+      };
+      if (mapId && mapId !== "DEMO_MAP_ID") {
+        mapOptions.mapId = mapId;
+      }
+
+      const map = new window.google.maps.Map(mapContainerRef.current, mapOptions);
 
       // Close any active info window when clicking map background
       map.addListener("click", () => {
@@ -520,10 +698,18 @@ export default function GoogleMapClient({
         }
       });
 
+      // Cancel running flight animation if user interacts / drags map
+      map.addListener("dragstart", () => {
+        if (flightAnimationRef.current !== null) {
+          cancelAnimationFrame(flightAnimationRef.current);
+          flightAnimationRef.current = null;
+        }
+      });
+
       mapInstanceRef.current = map;
       setMapLoaded(true);
 
-      // Check user location on initial load and scan 3km around
+      // Check user location on initial load and scan 3km around (only pan to user if no focusId)
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
           (pos) => {
@@ -531,16 +717,22 @@ export default function GoogleMapClient({
             const lng = pos.coords.longitude;
             setUserLocation({ lat, lng });
             placePulsingDot(map, lat, lng);
-            map.setCenter({ lat, lng });
-            map.setZoom(15);
-            handleScanArea(lat, lng, 3000);
+            if (!focusId) {
+              flyToGoogleMap(map, lat, lng, 15, {
+                onComplete: () => {
+                  handleScanArea(lat, lng, 3000);
+                },
+              });
+            }
           },
           () => {
-            handleScanArea(23.7405, 90.3846, 3000);
+            if (!focusId) {
+              handleScanArea(23.7405, 90.3846, 3000);
+            }
           },
           { enableHighAccuracy: true, timeout: 5000 }
         );
-      } else {
+      } else if (!focusId) {
         handleScanArea(23.7405, 90.3846, 3000);
       }
     };
@@ -548,133 +740,368 @@ export default function GoogleMapClient({
     if (window.google?.maps && mapContainerRef.current && !mapInstanceRef.current) {
       window.initGoogleMapCallback();
     }
-  }, [mapId, placePulsingDot]);
+  }, [mapId, placePulsingDot, flyToGoogleMap]);
 
-  // Render company markers on Google Map with rich interactive single popup
+  // Single reusable InfoWindow opener with custom close & route listeners
+  const openPointInfoWindow = useCallback(
+    (pt: UnifiedMapPoint, marker: any, isDirectMarkerClick: boolean = false) => {
+      if (!mapInstanceRef.current || !window.google) return;
+      const map = mapInstanceRef.current;
+
+      // 1. Toggle off ONLY when directly clicking the map pin that is already open
+      if (isDirectMarkerClick && activeInfoWindowRef.current && currentOpenPointIdRef.current === pt.id) {
+        activeInfoWindowRef.current.close();
+        activeInfoWindowRef.current = null;
+        currentOpenPointIdRef.current = null;
+        return;
+      }
+
+      // 2. Close any other open popup
+      if (activeInfoWindowRef.current) {
+        activeInfoWindowRef.current.close();
+        activeInfoWindowRef.current = null;
+      }
+
+      // 3. Ensure single InfoWindow instance exists
+      if (!singleInfoWindowRef.current) {
+        singleInfoWindowRef.current = new window.google.maps.InfoWindow({
+          maxWidth: 280,
+          disableAutoPan: false,
+        });
+        singleInfoWindowRef.current.addListener("closeclick", () => {
+          activeInfoWindowRef.current = null;
+          currentOpenPointIdRef.current = null;
+        });
+      }
+
+      const infoWindow = singleInfoWindowRef.current;
+      const sanitizedId = pt.id.replace(/[^a-zA-Z0-9_-]/g, "_");
+      const closeBtnId = `google-close-btn-${sanitizedId}`;
+      const routeBtnId = `google-route-btn-${sanitizedId}`;
+      const infoContent = buildGoogleInfoWindowHtml(pt, closeBtnId, routeBtnId);
+
+      infoWindow.setContent(infoContent);
+
+      if (marker) {
+        marker.setVisible(true);
+        if (!marker.getMap()) {
+          marker.setMap(map);
+        }
+      }
+
+      infoWindow.setPosition({ lat: pt.latitude, lng: pt.longitude });
+
+      if (marker) {
+        infoWindow.open({
+          map,
+          anchor: marker,
+          shouldFocus: false,
+        });
+      } else {
+        infoWindow.open({
+          map,
+          shouldFocus: false,
+        });
+      }
+
+      activeInfoWindowRef.current = infoWindow;
+      currentOpenPointIdRef.current = pt.id;
+      setSelectedPoint(pt);
+
+      window.google.maps.event.addListenerOnce(infoWindow, "domready", () => {
+        const closeBtn = document.getElementById(closeBtnId);
+        if (closeBtn) {
+          closeBtn.onclick = (e) => {
+            e.stopPropagation();
+            infoWindow.close();
+            if (activeInfoWindowRef.current === infoWindow) {
+              activeInfoWindowRef.current = null;
+              currentOpenPointIdRef.current = null;
+            }
+          };
+        }
+        const btn = document.getElementById(routeBtnId);
+        if (btn) {
+          btn.onclick = (e) => {
+            e.stopPropagation();
+            infoWindow.close();
+            if (activeInfoWindowRef.current === infoWindow) {
+              activeInfoWindowRef.current = null;
+              currentOpenPointIdRef.current = null;
+            }
+            handleCalculateRoute(pt);
+          };
+        }
+      });
+    },
+    [handleCalculateRoute]
+  );
+
+  // Render / sync green DB client markers (created once, updated only when clientPoints change)
   useEffect(() => {
     if (!mapLoaded || !mapInstanceRef.current || !window.google) return;
-
-    // Clear old markers & active popup
-    markersRef.current.forEach((m) => m.setMap(null));
-    markersRef.current = [];
-    if (activeInfoWindowRef.current) {
-      activeInfoWindowRef.current.close();
-      activeInfoWindowRef.current = null;
-    }
-
     const map = mapInstanceRef.current;
 
-    displayedPoints.forEach((pt) => {
-      const isGreen = pt.markerColor === "green";
-      const iconConfig = getMarkerIcon(isGreen, pt.category);
+    // Clear old client markers
+    clientMarkersRef.current.forEach((m) => m.setMap(null));
+    clientMarkersRef.current = [];
 
+    // Remove client point keys from markersMapRef
+    for (const [key, val] of markersMapRef.current.entries()) {
+      if (val.point.isClient) {
+        markersMapRef.current.delete(key);
+      }
+    }
+
+    clientPoints.forEach((pt) => {
+      const iconConfig = getMarkerIcon(true, pt.category);
       const marker = new window.google.maps.Marker({
         position: { lat: pt.latitude, lng: pt.longitude },
         map,
-        title: isGreen
-          ? `${pt.name} (🟢 Ordered - ${pt.orderCount} Orders)`
-          : `${pt.name} (🔴 0 Orders - Hospitality Lead)`,
+        title: `${pt.name} (🟢 Ordered - ${pt.orderCount} Orders)`,
         icon: iconConfig,
+        zIndex: 100, // Client markers always stay on top of prospect pins
       });
-
-      // Build InfoWindow HTML
-      // Note: Google's default close button (.gm-ui-hover-effect) is hidden via CSS,
-      // so we inject our own custom close button inside the content.
-      const infoContent = `
-        <div class="map-popup-inner" style="position:relative;">
-          <!-- Custom close button -->
-          <button
-            id="google-close-btn-${pt.id}"
-            type="button"
-            class="map-popup-close-btn"
-          >✕</button>
-          <!-- Business name -->
-          <div class="map-popup-title">${pt.name}</div>
-          <!-- Category & address -->
-          <div class="map-popup-sub" style="margin-bottom:${isGreen ? "9px" : "12px"}">
-            ${pt.category} • ${pt.address}
-          </div>
-          ${
-            isGreen
-              ? `<div class="map-popup-badge" style="margin-bottom:8px;">
-                  🟢 Ordered Client (${pt.orderCount} Order${pt.orderCount > 1 ? "s" : ""})
-                </div>`
-              : ""
-          }
-          <!-- Route button -->
-          <button
-            id="google-route-btn-${pt.id}"
-            type="button"
-            style="width: 100%; padding: 8px 12px; background: #2563eb; color: #ffffff; border: none; border-radius: 9px; font-size: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 6px rgba(37, 99, 235, 0.35); transition: background 0.15s ease; margin-top: 4px;"
-            onmouseenter="this.style.background='#1d4ed8';"
-            onmouseleave="this.style.background='#2563eb';"
-          >
-            <span>🚗</span><span>Route ETA from My Location</span>
-          </button>
-        </div>
-      `;
-
-      const infoWindow = new window.google.maps.InfoWindow({
-        content: infoContent,
-        maxWidth: 280,
-      });
-
-      infoWindow.addListener("closeclick", () => {
-        if (activeInfoWindowRef.current === infoWindow) {
-          activeInfoWindowRef.current = null;
-        }
-      });
+      (marker as any).__pointId = pt.id;
 
       marker.addListener("click", () => {
-        // 1. If clicking the currently open popup, toggle it closed
-        if (activeInfoWindowRef.current === infoWindow) {
-          infoWindow.close();
-          activeInfoWindowRef.current = null;
-          return;
-        }
-
-        // 2. Close any other active popup immediately
-        if (activeInfoWindowRef.current) {
-          activeInfoWindowRef.current.close();
-          activeInfoWindowRef.current = null;
-        }
-
-        // 3. Open this marker's popup
-        activeInfoWindowRef.current = infoWindow;
-        infoWindow.open(map, marker);
-        setSelectedPoint(pt);
-
-        // 4. Attach click listeners to buttons inside the InfoWindow once DOM is ready
-        window.google.maps.event.addListenerOnce(infoWindow, "domready", () => {
-          // Wire up custom close button
-          const closeBtn = document.getElementById(`google-close-btn-${pt.id}`);
-          if (closeBtn) {
-            closeBtn.onclick = (e) => {
-              e.stopPropagation();
-              infoWindow.close();
-              if (activeInfoWindowRef.current === infoWindow) {
-                activeInfoWindowRef.current = null;
-              }
-            };
-          }
-          // Wire up route button
-          const btn = document.getElementById(`google-route-btn-${pt.id}`);
-          if (btn) {
-            btn.onclick = (e) => {
-              e.stopPropagation();
-              infoWindow.close();
-              if (activeInfoWindowRef.current === infoWindow) {
-                activeInfoWindowRef.current = null;
-              }
-              handleCalculateRoute(pt);
-            };
-          }
-        });
+        openPointInfoWindow(pt, marker, true);
       });
 
-      markersRef.current.push(marker);
+      clientMarkersRef.current.push(marker);
+      markersMapRef.current.set(pt.id, { marker, point: pt });
     });
-  }, [mapLoaded, displayedPoints]);
+  }, [mapLoaded, clientPoints, getMarkerIcon, openPointInfoWindow]);
+
+  // Render / sync red live prospect markers (updates when prospects change)
+  useEffect(() => {
+    if (!mapLoaded || !mapInstanceRef.current || !window.google) return;
+    const map = mapInstanceRef.current;
+
+    const currentIds = new Set(prospectPoints.map((p) => p.id));
+
+    // Clear only prospect markers that are no longer in prospectPoints AND not currently active in popup
+    const remainingMarkers: any[] = [];
+    prospectMarkersRef.current.forEach((m) => {
+      const ptId = (m as any).__pointId;
+      if (ptId && !currentIds.has(ptId) && ptId !== currentOpenPointIdRef.current) {
+        m.setMap(null);
+        markersMapRef.current.delete(ptId);
+      } else {
+        remainingMarkers.push(m);
+      }
+    });
+    prospectMarkersRef.current = remainingMarkers;
+
+    prospectPoints.forEach((pt) => {
+      const existing = markersMapRef.current.get(pt.id);
+      if (!existing) {
+        const iconConfig = getMarkerIcon(false, pt.category);
+        const marker = new window.google.maps.Marker({
+          position: { lat: pt.latitude, lng: pt.longitude },
+          map,
+          title: `${pt.name} (🔴 0 Orders - Hospitality Lead)`,
+          icon: iconConfig,
+          zIndex: 10,
+        });
+        (marker as any).__pointId = pt.id;
+
+        marker.addListener("click", () => {
+          openPointInfoWindow(pt, marker, true);
+        });
+
+        prospectMarkersRef.current.push(marker);
+        markersMapRef.current.set(pt.id, { marker, point: pt });
+      } else {
+        (existing.marker as any).__pointId = pt.id;
+        if (!existing.marker.getMap()) {
+          existing.marker.setMap(map);
+        }
+      }
+    });
+  }, [mapLoaded, prospectPoints, getMarkerIcon, openPointInfoWindow]);
+
+  // Instantly toggle marker visibility based on active filters (fast, no re-instantiation!)
+  useEffect(() => {
+    if (!mapLoaded) return;
+
+    markersMapRef.current.forEach(({ marker, point: pt }) => {
+      let isVisible = true;
+
+      // Order color filter
+      if (filters.orderColor === "GREEN" && pt.markerColor !== "green") isVisible = false;
+      if (filters.orderColor === "RED" && pt.markerColor !== "red") isVisible = false;
+
+      // Category filter
+      if (
+        filters.category !== "ALL" &&
+        !pt.category.toLowerCase().includes(filters.category.toLowerCase())
+      ) {
+        isVisible = false;
+      }
+
+      // District filter (only applies to DB clients)
+      if (filters.district !== "ALL" && pt.isClient && pt.district !== filters.district) {
+        isVisible = false;
+      }
+
+      marker.setVisible(isVisible);
+
+      if (!isVisible && activeInfoWindowRef.current && currentOpenPointIdRef.current === pt.id) {
+        activeInfoWindowRef.current.close();
+        activeInfoWindowRef.current = null;
+        currentOpenPointIdRef.current = null;
+      }
+    });
+  }, [mapLoaded, filters]);
+
+  // Auto-open InfoWindow when focusId or search dropdown item is selected
+  useEffect(() => {
+    if (!mapLoaded || !mapInstanceRef.current || !window.google) return;
+    const map = mapInstanceRef.current;
+
+    const targetId = pendingSelectedPointIdRef.current || (focusId ? focusId : null);
+    if (!targetId) return;
+
+    const entry = markersMapRef.current.get(targetId);
+    if (entry) {
+      entry.marker.setVisible(true);
+      flyToGoogleMap(map, entry.point.latitude, entry.point.longitude, 16, {
+        onComplete: () => {
+          openPointInfoWindow(entry.point, entry.marker, false);
+        },
+      });
+      pendingSelectedPointIdRef.current = null;
+    }
+  }, [mapLoaded, focusId, prospectPoints, openPointInfoWindow, flyToGoogleMap]);
+
+  // Focus on business selected from search dropdown & open its InfoWindow
+  const handleSelectBusinessFromSearch = useCallback(
+    (pt: UnifiedMapPoint) => {
+      if (!mapInstanceRef.current || !window.google) return;
+      const map = mapInstanceRef.current;
+
+      // Always update sidebar immediately
+      setSelectedPoint(pt);
+
+      // Reset any active filters that would hide this business
+      setFilters((prev) => {
+        const next = { ...prev };
+        let changed = false;
+        if (pt.isClient && prev.district !== "ALL" && pt.district !== prev.district) {
+          next.district = "ALL";
+          changed = true;
+        }
+        if (prev.orderColor === "GREEN" && pt.markerColor !== "green") {
+          next.orderColor = "ALL";
+          changed = true;
+        }
+        if (prev.orderColor === "RED" && pt.markerColor !== "red") {
+          next.orderColor = "ALL";
+          changed = true;
+        }
+        if (prev.category !== "ALL" && !pt.category.toLowerCase().includes(prev.category.toLowerCase())) {
+          next.category = "ALL";
+          changed = true;
+        }
+        return changed ? next : prev;
+      });
+
+      // Check if marker already exists by id OR by close coordinates
+      let record = markersMapRef.current.get(pt.id);
+      if (!record) {
+        for (const entry of markersMapRef.current.values()) {
+          if (
+            Math.abs(entry.point.latitude - pt.latitude) < 0.0001 &&
+            Math.abs(entry.point.longitude - pt.longitude) < 0.0001
+          ) {
+            record = entry;
+            break;
+          }
+        }
+      }
+
+      if (!record) {
+        // Business doesn't have a rendered marker yet.
+        // Instantiate marker immediately on Google Map so user gets instant response
+        const iconConfig = getMarkerIcon(pt.isClient, pt.category);
+        const newMarker = new window.google.maps.Marker({
+          position: { lat: pt.latitude, lng: pt.longitude },
+          map,
+          title: pt.isClient
+            ? `${pt.name} (🟢 Ordered - ${pt.orderCount} Orders)`
+            : `${pt.name} (🔴 0 Orders - Hospitality Lead)`,
+          icon: iconConfig,
+          zIndex: pt.isClient ? 100 : 10,
+        });
+        (newMarker as any).__pointId = pt.id;
+
+        newMarker.addListener("click", () => {
+          openPointInfoWindow(pt, newMarker, true);
+        });
+
+        markersMapRef.current.set(pt.id, { marker: newMarker, point: pt });
+        record = { marker: newMarker, point: pt };
+
+        if (pt.isClient) {
+          clientMarkersRef.current.push(newMarker);
+        } else {
+          prospectMarkersRef.current.push(newMarker);
+          setProspects((prev) => {
+            if (prev.some((p) => p.id === pt.id || (Math.abs(p.latitude - pt.latitude) < 0.0001 && Math.abs(p.longitude - pt.longitude) < 0.0001))) {
+              return prev;
+            }
+            return [
+              ...prev,
+              {
+                id: pt.id,
+                name: pt.name,
+                category: pt.category,
+                address: pt.address,
+                phoneRaw: pt.phoneRaw || undefined,
+                latitude: pt.latitude,
+                longitude: pt.longitude,
+                isClient: false,
+                orderCount: 0,
+                markerColor: "red",
+              },
+            ];
+          });
+        }
+      }
+
+      pendingSelectedPointIdRef.current = null;
+      record.marker.setVisible(true);
+
+      // Smooth cinematic fly to destination, then open InfoWindow
+      flyToGoogleMap(map, pt.latitude, pt.longitude, 16, {
+        onComplete: () => {
+          if (record?.marker) {
+            record.marker.setVisible(true);
+            openPointInfoWindow(record.point, record.marker, false);
+          }
+        },
+      });
+    },
+    [getMarkerIcon, openPointInfoWindow, flyToGoogleMap]
+  );
+
+  // Filter change handler — intercepts district changes to pan Google Map to district center
+  const handleFiltersChange = useCallback((newFilters: MapFiltersState) => {
+    setFilters(newFilters);
+
+    // When district changes: fly Google Map to district center & scan nearby prospects
+    if (newFilters.district !== filters.district && newFilters.district !== "ALL") {
+      const coords = getDistrictCoordinates(newFilters.district);
+      if (coords && mapInstanceRef.current) {
+        flyToGoogleMap(mapInstanceRef.current, coords.lat, coords.lng, 12, {
+          onComplete: () => {
+            handleScanArea(coords.lat, coords.lng, 8000);
+          },
+        });
+      }
+    }
+  }, [filters.district, flyToGoogleMap]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -685,40 +1112,15 @@ export default function GoogleMapClient({
         />
       )}
 
-      {/* Provider Switcher Bar */}
-      <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <span className="text-xl">🌐</span>
-          <div>
-            <h2 className="text-sm md:text-base font-bold text-slate-900 dark:text-slate-100">
-              Map Provider: Google Maps JavaScript API
-            </h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Complete feature parity: Green (Orders ≥ 1), Red (0 Orders), live road routing, prospect conversion, and location dot.
-            </p>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <Link
-            href="/dashboard/map/geoapify"
-            className="px-3.5 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium transition-all"
-          >
-            ← Switch to Geoapify / MapLibre
-          </Link>
-          <button className="px-3.5 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-semibold shadow-sm cursor-default">
-            Google Maps (Active)
-          </button>
-        </div>
-      </div>
-
-      {/* Universal Shared Filters */}
+      {/* Universal Shared Filters with Autocomplete Dropdown */}
       <BusinessMapFilters
         filters={filters}
-        onChange={setFilters}
+        onChange={handleFiltersChange}
         categories={categories}
         districts={districts}
         areas={areas}
+        candidateBusinesses={candidatePoints}
+        onSelectBusiness={handleSelectBusinessFromSearch}
         stats={{
           total: displayedPoints.length,
           located: displayedPoints.length,
@@ -773,25 +1175,25 @@ export default function GoogleMapClient({
             </div>
           )}
 
-          {/* Floating Action Button: Scan Current Area */}
+          {/* Floating Action Button: Scan Nearby Area */}
           <div className="absolute top-4 left-4 z-20 flex flex-col gap-2">
             <button
-              onClick={() => handleScanArea()}
-              disabled={isScanning}
+              onClick={handleLocateMe}
+              disabled={isScanning || isLocating}
               className="px-4 py-2.5 rounded-xl bg-white/95 dark:bg-slate-900/95 hover:bg-white dark:hover:bg-slate-900 border border-slate-200 dark:border-slate-700/80 text-slate-800 dark:text-slate-100 shadow-xl backdrop-blur-md text-xs font-bold transition-all flex items-center gap-2 cursor-pointer active:scale-95 disabled:opacity-50"
-              title="Query hospitality businesses in the currently viewed map location"
+              title="Pan to your current location and scan 3km nearby area"
             >
-              {isScanning ? (
+              {isScanning || isLocating ? (
                 <>
                   <svg className="animate-spin w-4 h-4 text-blue-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <circle cx="12" cy="12" r="10" strokeDasharray="32" strokeDashoffset="12" />
                   </svg>
-                  <span>Scanning Area…</span>
+                  <span>Scanning…</span>
                 </>
               ) : (
                 <>
-                  <span className="text-sm">🔍</span>
-                  <span>Scan Area (Hotels, Parlours, Food)</span>
+                  <span className="text-sm">📡</span>
+                  <span>Scan Nearby Area</span>
                 </>
               )}
             </button>

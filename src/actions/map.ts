@@ -133,6 +133,7 @@ export interface RestaurantProspect {
   phoneRaw?: string;
   isClient: boolean;
   clientBusinessId?: string;
+  orderCount?: number;
   markerColor: "green" | "red";
 }
 
@@ -371,4 +372,104 @@ export async function calculateGeoapifyRoute(params: {
     return { success: false, error: err.message || "Network error calculating route." };
   }
 }
+
+/**
+ * Searches places and amenities live across all of Bangladesh using Geoapify
+ * Returns matching candidates (e.g. all Pizza Burg branches across BD).
+ */
+export async function searchLivePlacesAcrossBD(query: string): Promise<RestaurantProspect[]> {
+  await requireAuth();
+
+  const trimmed = query.trim();
+  if (!trimmed || trimmed.length < 2) return [];
+
+  const apiKey =
+    process.env.GEOAPIFY_SERVER_API_KEY ||
+    process.env.NEXT_PUBLIC_GEOAPIFY_API_KEY;
+
+  if (!apiKey) {
+    return [];
+  }
+
+  try {
+    const url = `https://api.geoapify.com/v1/geocode/autocomplete?text=${encodeURIComponent(
+      trimmed
+    )}&filter=countrycode:bd&limit=20&apiKey=${apiKey}`;
+
+    const res = await fetch(url, { cache: "no-store" });
+    const data = await res.json();
+
+    if (!data.features || !Array.isArray(data.features)) {
+      return [];
+    }
+
+    // Match with existing DB client businesses
+    const dbClients = await db.business.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        name: true,
+        latitude: true,
+        longitude: true,
+        _count: { select: { orders: true } },
+      },
+    });
+
+    const results: RestaurantProspect[] = data.features
+      .filter((f: any) => f.properties && f.properties.lat != null && f.properties.lon != null)
+      .map((f: any) => {
+        const plat = f.properties.lat;
+        const plon = f.properties.lon;
+        const name = f.properties.name || f.properties.street || trimmed;
+        const address =
+          f.properties.formatted ||
+          `${f.properties.suburb || f.properties.city || "Dhaka"}, Bangladesh`;
+
+        const rawCat = f.properties.category || f.properties.result_type || "amenity";
+        const catLabel =
+          rawCat.includes("hotel")
+            ? "Hotel"
+            : rawCat.includes("cafe")
+            ? "Cafe"
+            : rawCat.includes("beauty") || rawCat.includes("salon")
+            ? "Beauty Parlour"
+            : "Restaurant";
+
+        const matched = dbClients.find((c) => {
+          if (c.name.toLowerCase() === name.toLowerCase()) return true;
+          if (c.latitude && c.longitude) {
+            const dLat = Math.abs(Number(c.latitude) - plat);
+            const dLon = Math.abs(Number(c.longitude) - plon);
+            return dLat < 0.0005 && dLon < 0.0005;
+          }
+          return false;
+        });
+
+        const isClient = !!matched;
+        const orderCount = matched?._count?.orders ?? 0;
+        // For matched clients, prefer DB coordinates (more accurate for marker lookup)
+        const finalLat = (isClient && matched?.latitude) ? Number(matched.latitude) : plat;
+        const finalLon = (isClient && matched?.longitude) ? Number(matched.longitude) : plon;
+
+        return {
+          id: f.properties.place_id || `geo_${plat}_${plon}`,
+          name,
+          category: catLabel,
+          address,
+          latitude: finalLat,
+          longitude: finalLon,
+          isClient,
+          clientBusinessId: matched?.id,
+          orderCount,
+          markerColor: isClient ? "green" : "red",
+        };
+      });
+
+    return results;
+  } catch (err) {
+    console.error("searchLivePlacesAcrossBD error:", err);
+    return [];
+  }
+}
+
 

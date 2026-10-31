@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useTransition, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { Pagination } from "@/components/ui/Pagination";
+import { useToast } from "@/components/ui/Toast";
 import {
   createBusiness,
   updateBusiness,
@@ -23,6 +25,11 @@ import {
   CheckCircle2,
   Archive as ArchiveIcon,
   Loader2,
+  MoreVertical,
+  Edit,
+  Eye,
+  RotateCcw,
+  Navigation,
 } from "lucide-react";
 
 interface BusinessItem {
@@ -75,6 +82,67 @@ export default function BusinessListClient({
   const [editingBusiness, setEditingBusiness] = useState<BusinessItem | null>(null);
   const [deletingBusiness, setDeletingBusiness] = useState<BusinessItem | null>(null);
   const [archivingBusiness, setArchivingBusiness] = useState<BusinessItem | null>(null);
+  const [restoringBusiness, setRestoringBusiness] = useState<BusinessItem | null>(null);
+  const [openActionBusiness, setOpenActionBusiness] = useState<BusinessItem | null>(null);
+  const [menuCoords, setMenuCoords] = useState<{ top?: number; bottom?: number; right: number } | null>(null);
+  const [mounted, setMounted] = useState(false);
+  const actionMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const handleToggleActionMenu = (e: React.MouseEvent<HTMLButtonElement>, b: BusinessItem) => {
+    e.stopPropagation();
+    if (openActionBusiness?.id === b.id) {
+      setOpenActionBusiness(null);
+      setMenuCoords(null);
+      return;
+    }
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const openUpwards = spaceBelow < 240 && rect.top > 240;
+
+    if (openUpwards) {
+      setMenuCoords({
+        bottom: window.innerHeight - rect.top + 4,
+        right: window.innerWidth - rect.right,
+      });
+    } else {
+      setMenuCoords({
+        top: rect.bottom + 4,
+        right: window.innerWidth - rect.right,
+      });
+    }
+    setOpenActionBusiness(b);
+  };
+
+  // Close 3-dot action menu when clicking outside, scrolling, or resizing
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (actionMenuRef.current && !actionMenuRef.current.contains(e.target as Node)) {
+        setOpenActionBusiness(null);
+        setMenuCoords(null);
+      }
+    };
+    const handleScrollOrResize = () => {
+      if (openActionBusiness) {
+        setOpenActionBusiness(null);
+        setMenuCoords(null);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    window.addEventListener("scroll", handleScrollOrResize, true);
+    window.addEventListener("resize", handleScrollOrResize);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      window.removeEventListener("scroll", handleScrollOrResize, true);
+      window.removeEventListener("resize", handleScrollOrResize);
+    };
+  }, [openActionBusiness]);
   const [formName, setFormName] = useState("");
   const [formCategory, setFormCategory] = useState("");
   const [formArea, setFormArea] = useState("");
@@ -162,7 +230,7 @@ export default function BusinessListClient({
   };
 
   // Deletion / update feedback
-  const [feedbackMsg, setFeedbackMsg] = useState<{ text: string; type: "success" | "error" } | null>(null);
+  const toast = useToast();
   const [isPending, startTransition] = useTransition();
 
   const handleAutoGeocode = async () => {
@@ -315,6 +383,11 @@ export default function BusinessListClient({
         setFormError(res.error);
       } else {
         setIsModalOpen(false);
+        if (editingBusiness) {
+          toast.success(`"${formName}" updated successfully.`);
+        } else {
+          toast.success(`Business "${formName}" added to directory.`);
+        }
         router.refresh();
       }
     });
@@ -327,9 +400,9 @@ export default function BusinessListClient({
     startTransition(async () => {
       const res = await deleteBusiness(id);
       if (res.error) {
-        setFeedbackMsg({ text: res.error, type: "error" });
+        toast.error(res.error);
       } else {
-        setFeedbackMsg({ text: `Deleted "${name}" successfully.`, type: "success" });
+        toast.success(`"${name}" deleted successfully.`);
         setDeletingBusiness(null);
         router.refresh();
       }
@@ -343,22 +416,29 @@ export default function BusinessListClient({
     startTransition(async () => {
       const res = await archiveBusiness(id);
       if (res.error) {
-        setFeedbackMsg({ text: res.error, type: "error" });
+        toast.error(res.error);
       } else {
-        setFeedbackMsg({ text: `Archived "${name}". Historical orders are preserved.`, type: "success" });
+        toast.warning(`"${name}" archived. Historical orders are preserved.`);
         setArchivingBusiness(null);
         router.refresh();
       }
     });
   };
 
-  const handleRestore = (id: string, name: string) => {
+  const handleRestore = (business: BusinessItem) => {
+    setRestoringBusiness(business);
+  };
+
+  const confirmRestoreAction = () => {
+    if (!restoringBusiness) return;
+    const { id, name } = restoringBusiness;
     startTransition(async () => {
       const res = await restoreBusiness(id);
+      setRestoringBusiness(null);
       if (res.error) {
-        setFeedbackMsg({ text: res.error, type: "error" });
+        toast.error(res.error);
       } else {
-        setFeedbackMsg({ text: `Restored "${name}" to active status.`, type: "success" });
+        toast.success(`"${name}" restored to active status.`);
         router.refresh();
       }
     });
@@ -398,25 +478,6 @@ export default function BusinessListClient({
 
   return (
     <div className="space-y-6">
-      {/* Alert Banner */}
-      {feedbackMsg && (
-        <div
-          className={`flex items-center justify-between p-4 rounded-xl text-sm font-medium border transition-all ${
-            feedbackMsg.type === "error"
-              ? "bg-rose-500/10 text-rose-300 border-rose-500/20"
-              : "bg-emerald-500/10 text-emerald-300 border-emerald-500/20"
-          }`}
-        >
-          <span>{feedbackMsg.text}</span>
-          <button
-            onClick={() => setFeedbackMsg(null)}
-            className="text-slate-400 hover:text-slate-100 transition-colors p-1"
-          >
-            ✕
-          </button>
-        </div>
-      )}
-
       {/* Filter and Action Bar */}
       <div className="bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -537,13 +598,13 @@ export default function BusinessListClient({
         <table className="w-full text-left border-collapse text-sm">
           <thead>
             <tr className="bg-slate-50 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">
-              <th className="px-4 py-3.5 w-[260px] max-w-[280px]">Business Name</th>
+              <th className="px-4 py-3.5 min-w-[200px]">Business Name</th>
               <th className="px-4 py-3.5 w-[110px] whitespace-nowrap">Category</th>
-              <th className="px-4 py-3.5 min-w-[220px]">Area / District</th>
+              <th className="px-4 py-3.5 min-w-[240px]">Area / District</th>
               <th className="px-4 py-3.5 w-[130px] whitespace-nowrap">Phone</th>
-              <th className="px-4 py-3.5 w-[140px] whitespace-nowrap">Location</th>
+              <th className="px-4 py-3.5 w-[150px] whitespace-nowrap">Location</th>
               <th className="px-4 py-3.5 w-[100px] whitespace-nowrap">Orders</th>
-              <th className="px-4 py-3.5 w-[180px] text-right whitespace-nowrap">Actions</th>
+              <th className="px-4 py-3.5 w-16 text-right whitespace-nowrap">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800/40">
@@ -556,7 +617,7 @@ export default function BusinessListClient({
             ) : (
               paginatedBusinesses.map((b) => (
                 <tr key={b.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/30 transition-colors">
-                  <td className="px-4 py-3.5 w-[260px] max-w-[280px]">
+                  <td className="px-4 py-3.5 min-w-[200px]">
                     <Link
                       href={`/dashboard/businesses/${b.id}`}
                       className="font-semibold text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 transition-colors block truncate"
@@ -598,43 +659,18 @@ export default function BusinessListClient({
                     <span className="text-xs text-slate-500 dark:text-slate-400">orders</span>
                   </td>
                   <td className="px-4 py-3.5 text-right whitespace-nowrap">
-                    <div className="inline-flex items-center gap-1.5">
-                      <button
-                        onClick={() => openEditModal(b)}
-                        className="px-2.5 py-1 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700/80 rounded-md text-xs font-medium transition-all shadow-sm"
-                      >
-                        Edit
-                      </button>
-
-                      {b.isActive ? (
-                        <button
-                          onClick={() => setArchivingBusiness(b)}
-                          className="px-2.5 py-1 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700/80 rounded-md text-xs font-medium transition-all shadow-sm"
-                          title="Archive business (preserves order history)"
-                        >
-                          Archive
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleRestore(b.id, b.name)}
-                          className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-md text-xs font-medium transition-all shadow-sm"
-                        >
-                          Restore
-                        </button>
-                      )}
-
-                      <button
-                        onClick={() => setDeletingBusiness(b)}
-                        className="px-2.5 py-1 bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30 rounded-md text-xs font-medium transition-all"
-                        title={
-                          b.orderCount > 0
-                            ? "Has linked orders. Delete modal will offer safe archive option."
-                            : "Permanently delete business"
-                        }
-                      >
-                        Delete
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => handleToggleActionMenu(e, b)}
+                      className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+                        openActionBusiness?.id === b.id
+                          ? "bg-slate-100 dark:bg-slate-800 text-blue-600 dark:text-blue-400 border-slate-300 dark:border-slate-700 shadow-sm"
+                          : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/70 border-transparent hover:border-slate-200 dark:hover:border-slate-700"
+                      }`}
+                      title="Actions"
+                    >
+                      <MoreVertical className="w-4 h-4" />
+                    </button>
                   </td>
                 </tr>
               ))
@@ -982,6 +1018,173 @@ export default function BusinessListClient({
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Restore Confirmation Modal ──────────────────────────────────────── */}
+      {restoringBusiness && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xl space-y-5 text-slate-900 dark:text-slate-100">
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                <ArchiveIcon className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Restore Business
+                </h3>
+                <p className="text-sm text-slate-600 dark:text-slate-300">
+                  Restore <strong className="text-slate-900 dark:text-white font-semibold">"{restoringBusiness.name}"</strong> to the active directory?
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-xs text-emerald-800 dark:text-emerald-300 leading-relaxed">
+              This business will reappear in the active client list, maps, and will be available for new orders. All {restoringBusiness.orderCount} historical order(s) remain intact.
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setRestoringBusiness(null)}
+                className="px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={confirmRestoreAction}
+                className="px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/25 transition-all disabled:opacity-50"
+              >
+                {isPending ? "Restoring..." : "Restore Business"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating 3-Dot Action Menu Portal (escapes all table/overflow boundaries) */}
+      {mounted && openActionBusiness && menuCoords && typeof document !== "undefined" && createPortal(
+        <div
+          ref={actionMenuRef}
+          style={{
+            position: "fixed",
+            top: menuCoords.top !== undefined ? `${menuCoords.top}px` : undefined,
+            bottom: menuCoords.bottom !== undefined ? `${menuCoords.bottom}px` : undefined,
+            right: `${menuCoords.right}px`,
+            zIndex: 9999,
+          }}
+          className="w-52 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl py-1 animate-fade-in divide-y divide-slate-100 dark:divide-slate-800/80"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="py-1">
+            <Link
+              href={`/dashboard/businesses/${openActionBusiness.id}`}
+              onClick={() => {
+                setOpenActionBusiness(null);
+                setMenuCoords(null);
+              }}
+              className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/70 flex items-center gap-2 transition-colors"
+            >
+              <Eye className="w-3.5 h-3.5 text-slate-400" />
+              <span>View Details</span>
+            </Link>
+
+            <button
+              type="button"
+              onClick={() => {
+                const target = openActionBusiness;
+                setOpenActionBusiness(null);
+                setMenuCoords(null);
+                openEditModal(target);
+              }}
+              className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/70 flex items-center gap-2 transition-colors cursor-pointer"
+            >
+              <Edit className="w-3.5 h-3.5 text-blue-500" />
+              <span>Edit Business</span>
+            </button>
+          </div>
+
+          {openActionBusiness.latitude != null && openActionBusiness.longitude != null && (
+            <div className="py-1">
+              <Link
+                href={`/dashboard/map/google?focus=${openActionBusiness.id}`}
+                onClick={() => {
+                  setOpenActionBusiness(null);
+                  setMenuCoords(null);
+                }}
+                className="w-full px-3 py-1.5 text-left text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:text-blue-600 dark:hover:text-blue-400 flex items-center justify-between transition-colors group"
+              >
+                <span className="flex items-center gap-2">
+                  <MapPin className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                  <span>View on Google Maps</span>
+                </span>
+              </Link>
+
+              <Link
+                href={`/dashboard/map/geoapify?focus=${openActionBusiness.id}`}
+                onClick={() => {
+                  setOpenActionBusiness(null);
+                  setMenuCoords(null);
+                }}
+                className="w-full px-3 py-1.5 text-left text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 hover:text-emerald-600 dark:hover:text-emerald-400 flex items-center justify-between transition-colors group"
+              >
+                <span className="flex items-center gap-2">
+                  <Navigation className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                  <span>View on MapLibre</span>
+                </span>
+              </Link>
+            </div>
+          )}
+
+          <div className="py-1">
+            {openActionBusiness.isActive ? (
+              <button
+                type="button"
+                onClick={() => {
+                  const target = openActionBusiness;
+                  setOpenActionBusiness(null);
+                  setMenuCoords(null);
+                  setArchivingBusiness(target);
+                }}
+                className="w-full px-3 py-2 text-left text-xs font-semibold text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-500/10 flex items-center gap-2 transition-colors cursor-pointer"
+              >
+                <ArchiveIcon className="w-3.5 h-3.5 text-amber-500" />
+                <span>Archive</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  const target = openActionBusiness;
+                  setOpenActionBusiness(null);
+                  setMenuCoords(null);
+                  handleRestore(target);
+                }}
+                className="w-full px-3 py-2 text-left text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 flex items-center gap-2 transition-colors cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-emerald-500" />
+                <span>Restore</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                const target = openActionBusiness;
+                setOpenActionBusiness(null);
+                setMenuCoords(null);
+                setDeletingBusiness(target);
+              }}
+              className="w-full px-3 py-2 text-left text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 flex items-center gap-2 transition-colors cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+              <span>Delete</span>
+            </button>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );

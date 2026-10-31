@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import RecordOrderModal, { BusinessOption, ProductOption } from "@/components/orders/RecordOrderModal";
-import { MapPin, Building2, Phone, User, Calendar, ExternalLink, Plus } from "lucide-react";
+import { MapPin, Building2, Phone, User, Calendar, ExternalLink, Plus, ChevronDown, Map, Navigation, AlertCircle } from "lucide-react";
 
 interface OrderItemDisplay {
   id: string;
@@ -53,6 +53,24 @@ export default function BusinessDetailClient({
   businesses,
 }: BusinessDetailClientProps) {
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
+  const [isMapDropdownOpen, setIsMapDropdownOpen] = useState(false);
+  const mapDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        mapDropdownRef.current &&
+        !mapDropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsMapDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const hasCoordinates = business.latitude != null && business.longitude != null;
 
   // Address logic:
   // If 'area' contains long text (e.g. from Excel imports), that's the physical location
@@ -117,13 +135,76 @@ export default function BusinessDetailClient({
               <span>New Order</span>
             </button>
 
-            <Link
-              href={`/dashboard/map/geoapify?focus=${business.id}`}
-              className="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-medium transition-all"
-            >
-              <MapPin className="w-4 h-4 text-rose-500" />
-              <span>View on Map</span>
-            </Link>
+            {/* View on Map Dropdown */}
+            <div className="relative" ref={mapDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setIsMapDropdownOpen((prev) => !prev)}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-semibold transition-all cursor-pointer shadow-sm active:scale-95"
+              >
+                <MapPin className="w-4 h-4 text-rose-500" />
+                <span>View on Map</span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${
+                    isMapDropdownOpen ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
+
+              {/* Dropdown Menu */}
+              {isMapDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl p-2 z-50 animate-fade-in space-y-1">
+                  <div className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                    Select Map Provider
+                  </div>
+
+                  {/* Option 1: Google Maps */}
+                  <Link
+                    href={`/dashboard/map/google?focus=${business.id}`}
+                    onClick={() => setIsMapDropdownOpen(false)}
+                    className="flex items-start gap-3 p-2.5 rounded-xl hover:bg-blue-50/80 dark:hover:bg-blue-500/10 transition-colors group"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0 border border-blue-200/60 dark:border-blue-500/20 group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                      <Map className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-bold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                        Google Maps
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        View business pin with street routing &amp; directions
+                      </p>
+                    </div>
+                  </Link>
+
+                  {/* Option 2: MapLibre (Geoapify) */}
+                  <Link
+                    href={`/dashboard/map/geoapify?focus=${business.id}`}
+                    onClick={() => setIsMapDropdownOpen(false)}
+                    className="flex items-start gap-3 p-2.5 rounded-xl hover:bg-emerald-50/80 dark:hover:bg-emerald-500/10 transition-colors group"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-200/60 dark:border-emerald-500/20 group-hover:bg-emerald-600 group-hover:text-white transition-colors">
+                      <Navigation className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-bold text-slate-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
+                        MapLibre (Geoapify)
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Vector OSM bright map with fast route calculation
+                      </p>
+                    </div>
+                  </Link>
+
+                  {!hasCoordinates && (
+                    <div className="mt-1 p-2 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200/60 dark:border-amber-500/20 text-[11px] text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                      <span>Note: This business has no GPS coordinates yet.</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 

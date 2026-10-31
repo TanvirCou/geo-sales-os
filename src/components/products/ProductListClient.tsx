@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
   createProduct,
@@ -11,7 +12,8 @@ import {
   ProductInput,
 } from "@/actions/products";
 import { Pagination } from "@/components/ui/Pagination";
-import { Trash2, AlertTriangle, Archive as ArchiveIcon } from "lucide-react";
+import { useToast } from "@/components/ui/Toast";
+import { Trash2, AlertTriangle, Archive as ArchiveIcon, MoreVertical, Edit, RotateCcw } from "lucide-react";
 
 interface ProductItem {
   id: string;
@@ -30,7 +32,12 @@ export default function ProductListClient({
   initialProducts: ProductItem[];
 }) {
   const router = useRouter();
-  const [products] = useState<ProductItem[]>(initialProducts);
+  const toast = useToast();
+  const [products, setProducts] = useState<ProductItem[]>(initialProducts);
+
+  useEffect(() => {
+    setProducts(initialProducts);
+  }, [initialProducts]);
   const [q, setQ] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -47,10 +54,70 @@ export default function ProductListClient({
   // Confirmation Modals State
   const [deletingProduct, setDeletingProduct] = useState<ProductItem | null>(null);
   const [archivingProduct, setArchivingProduct] = useState<ProductItem | null>(null);
+  const [restoringProduct, setRestoringProduct] = useState<ProductItem | null>(null);
+  const [openActionProduct, setOpenActionProduct] = useState<ProductItem | null>(null);
+  const [menuCoords, setMenuCoords] = useState<{ top?: number; bottom?: number; right: number } | null>(null);
+  const [mounted, setMounted] = useState(false);
+  const actionMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const handleToggleActionMenu = (e: React.MouseEvent<HTMLButtonElement>, p: ProductItem) => {
+    e.stopPropagation();
+    if (openActionProduct?.id === p.id) {
+      setOpenActionProduct(null);
+      setMenuCoords(null);
+      return;
+    }
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const openUpwards = spaceBelow < 200 && rect.top > 200;
+
+    if (openUpwards) {
+      setMenuCoords({
+        bottom: window.innerHeight - rect.top + 4,
+        right: window.innerWidth - rect.right,
+      });
+    } else {
+      setMenuCoords({
+        top: rect.bottom + 4,
+        right: window.innerWidth - rect.right,
+      });
+    }
+    setOpenActionProduct(p);
+  };
+
+  // Close 3-dot action menu when clicking outside, scrolling, or resizing
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (actionMenuRef.current && !actionMenuRef.current.contains(e.target as Node)) {
+        setOpenActionProduct(null);
+        setMenuCoords(null);
+      }
+    };
+    const handleScrollOrResize = () => {
+      if (openActionProduct) {
+        setOpenActionProduct(null);
+        setMenuCoords(null);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    window.addEventListener("scroll", handleScrollOrResize, true);
+    window.addEventListener("resize", handleScrollOrResize);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      window.removeEventListener("scroll", handleScrollOrResize, true);
+      window.removeEventListener("resize", handleScrollOrResize);
+    };
+  }, [openActionProduct]);
 
   // Transitions
   const [isPending, startTransition] = useTransition();
-  const [feedback, setFeedback] = useState<{ text: string; type: "success" | "error" } | null>(null);
 
   const openAddModal = () => {
     setEditingProduct(null);
@@ -95,12 +162,11 @@ export default function ProductListClient({
         setFormError(res.error);
       } else {
         setIsModalOpen(false);
-        setFeedback({
-          text: editingProduct
-            ? `Updated "${formName}". Note: Existing order lines retain their historical price.`
-            : `Product "${formName}" created.`,
-          type: "success",
-        });
+        if (editingProduct) {
+          toast.success(`"${formName}" updated. Historical order prices unchanged.`);
+        } else {
+          toast.success(`Product "${formName}" created successfully.`);
+        }
         router.refresh();
       }
     });
@@ -113,9 +179,9 @@ export default function ProductListClient({
       const res = await deleteProduct(target.id);
       setDeletingProduct(null);
       if (res?.error) {
-        setFeedback({ text: res.error, type: "error" });
+        toast.error(res.error);
       } else {
-        setFeedback({ text: `Deleted "${target.name}" successfully.`, type: "success" });
+        toast.success(`"${target.name}" deleted permanently.`);
         router.refresh();
       }
     });
@@ -128,24 +194,28 @@ export default function ProductListClient({
       const res = await archiveProduct(target.id);
       setArchivingProduct(null);
       if (res?.error) {
-        setFeedback({ text: res.error, type: "error" });
+        toast.error(res.error);
       } else {
-        setFeedback({
-          text: `Archived "${target.name}". Historical orders will keep historical unit prices.`,
-          type: "success",
-        });
+        toast.warning(`"${target.name}" archived. Historical order prices preserved.`);
         router.refresh();
       }
     });
   };
 
-  const handleRestore = (id: string, name: string) => {
+  const handleRestore = (product: ProductItem) => {
+    setRestoringProduct(product);
+  };
+
+  const confirmRestoreAction = () => {
+    if (!restoringProduct) return;
+    const { id, name } = restoringProduct;
     startTransition(async () => {
       const res = await restoreProduct(id);
+      setRestoringProduct(null);
       if (res.error) {
-        setFeedback({ text: res.error, type: "error" });
+        toast.error(res.error);
       } else {
-        setFeedback({ text: `Restored "${name}" to active catalog.`, type: "success" });
+        toast.success(`"${name}" restored to active catalog.`);
         router.refresh();
       }
     });
@@ -170,24 +240,6 @@ export default function ProductListClient({
 
   return (
     <div className="space-y-6">
-      {feedback && (
-        <div
-          className={`flex items-center justify-between p-4 rounded-xl text-sm font-medium border transition-all ${
-            feedback.type === "error"
-              ? "bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-500/20"
-              : "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/20"
-          }`}
-        >
-          <span>{feedback.text}</span>
-          <button
-            onClick={() => setFeedback(null)}
-            className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-100 transition-colors p-1"
-          >
-            ✕
-          </button>
-        </div>
-      )}
-
       {/* Action / Search Bar */}
       <div className="bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-sm space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -236,12 +288,12 @@ export default function ProductListClient({
         <table className="w-full text-left border-collapse text-sm">
           <thead>
             <tr className="bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">
-              <th className="px-5 py-3.5">Product Name</th>
-              <th className="px-5 py-3.5">SKU</th>
-              <th className="px-5 py-3.5">Unit</th>
-              <th className="px-5 py-3.5">Status</th>
-              <th className="px-5 py-3.5">Referenced in Orders</th>
-              <th className="px-5 py-3.5 text-right">Actions</th>
+              <th className="px-5 py-3.5 min-w-[220px]">Product Name</th>
+              <th className="px-5 py-3.5 w-[140px] whitespace-nowrap">SKU</th>
+              <th className="px-5 py-3.5 w-[100px] whitespace-nowrap">Unit</th>
+              <th className="px-5 py-3.5 w-[120px] whitespace-nowrap">Status</th>
+              <th className="px-5 py-3.5 w-[180px] whitespace-nowrap">Referenced in Orders</th>
+              <th className="px-5 py-3.5 w-16 text-right whitespace-nowrap">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
@@ -254,14 +306,14 @@ export default function ProductListClient({
             ) : (
               paginatedProducts.map((p) => (
                 <tr key={p.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/30 transition-colors">
-                  <td className="px-5 py-3.5 font-semibold text-slate-900 dark:text-white">{p.name}</td>
-                  <td className="px-5 py-3.5">
+                  <td className="px-5 py-3.5 font-semibold text-slate-900 dark:text-white min-w-[220px]">{p.name}</td>
+                  <td className="px-5 py-3.5 whitespace-nowrap">
                     <code className="text-xs font-mono text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-500/20">
                       {p.sku || "—"}
                     </code>
                   </td>
-                  <td className="px-5 py-3.5 text-slate-600 dark:text-slate-300">{p.unit || "Pcs"}</td>
-                  <td className="px-5 py-3.5">
+                  <td className="px-5 py-3.5 text-slate-600 dark:text-slate-300 whitespace-nowrap">{p.unit || "Pcs"}</td>
+                  <td className="px-5 py-3.5 whitespace-nowrap">
                     <span
                       className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium border ${
                         p.isActive
@@ -272,49 +324,24 @@ export default function ProductListClient({
                       {p.isActive ? "Active" : "Archived"}
                     </span>
                   </td>
-                  <td className="px-5 py-3.5">
+                  <td className="px-5 py-3.5 whitespace-nowrap">
                     <span className={p.orderItemCount > 0 ? "text-blue-600 dark:text-blue-400 font-medium" : "text-slate-400 dark:text-slate-500"}>
                       {p.orderItemCount} order line(s)
                     </span>
                   </td>
-                  <td className="px-5 py-3.5 text-right">
-                    <div className="inline-flex items-center gap-1.5">
-                      <button
-                        onClick={() => openEditModal(p)}
-                        className="px-2.5 py-1 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-md text-xs font-medium shadow-sm transition-all"
-                      >
-                        Edit
-                      </button>
-
-                      {p.isActive ? (
-                        <button
-                          onClick={() => setArchivingProduct(p)}
-                          className="px-2.5 py-1 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-md text-xs font-medium shadow-sm transition-all"
-                          title="Archive product (preserves historical order items)"
-                        >
-                          Archive
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleRestore(p.id, p.name)}
-                          className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-md text-xs font-medium shadow-sm transition-all"
-                        >
-                          Restore
-                        </button>
-                      )}
-
-                      <button
-                        onClick={() => setDeletingProduct(p)}
-                        className="px-2.5 py-1 bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30 rounded-md text-xs font-medium transition-all"
-                        title={
-                          p.orderItemCount > 0
-                            ? "Hard delete restricted: referenced in historical orders. Use Archive instead."
-                            : "Permanently delete product"
-                        }
-                      >
-                        Delete
-                      </button>
-                    </div>
+                  <td className="px-5 py-3.5 w-16 text-right whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={(e) => handleToggleActionMenu(e, p)}
+                      className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+                        openActionProduct?.id === p.id
+                          ? "bg-slate-100 dark:bg-slate-800 text-blue-600 dark:text-blue-400 border-slate-300 dark:border-slate-700 shadow-sm"
+                          : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/70 border-transparent hover:border-slate-200 dark:hover:border-slate-700"
+                      }`}
+                      title="Actions"
+                    >
+                      <MoreVertical className="w-4 h-4" />
+                    </button>
                   </td>
                 </tr>
               ))
@@ -515,6 +542,129 @@ export default function ProductListClient({
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Restore Confirmation Modal ──────────────────────────────────────── */}
+      {restoringProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xl space-y-5 text-slate-900 dark:text-slate-100">
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                <ArchiveIcon className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Restore Product
+                </h3>
+                <p className="text-sm text-slate-600 dark:text-slate-300">
+                  Restore <strong className="text-slate-900 dark:text-white font-semibold">"{restoringProduct.name}"</strong> to the active catalog?
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-xs text-emerald-800 dark:text-emerald-300 leading-relaxed">
+              This product will become available again for new orders. All {restoringProduct.orderItemCount} existing order line(s) and their historical prices remain untouched.
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setRestoringProduct(null)}
+                className="px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={confirmRestoreAction}
+                className="px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/25 transition-all disabled:opacity-50"
+              >
+                {isPending ? "Restoring..." : "Restore Product"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating 3-Dot Action Menu Portal */}
+      {mounted && openActionProduct && menuCoords && typeof document !== "undefined" && createPortal(
+        <div
+          ref={actionMenuRef}
+          style={{
+            position: "fixed",
+            top: menuCoords.top !== undefined ? `${menuCoords.top}px` : undefined,
+            bottom: menuCoords.bottom !== undefined ? `${menuCoords.bottom}px` : undefined,
+            right: `${menuCoords.right}px`,
+            zIndex: 9999,
+          }}
+          className="w-44 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl py-1 animate-fade-in divide-y divide-slate-100 dark:divide-slate-800/80"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="py-1">
+            <button
+              type="button"
+              onClick={() => {
+                const target = openActionProduct;
+                setOpenActionProduct(null);
+                setMenuCoords(null);
+                openEditModal(target);
+              }}
+              className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/70 flex items-center gap-2 transition-colors cursor-pointer"
+            >
+              <Edit className="w-3.5 h-3.5 text-blue-500" />
+              <span>Edit Product</span>
+            </button>
+          </div>
+
+          <div className="py-1">
+            {openActionProduct.isActive ? (
+              <button
+                type="button"
+                onClick={() => {
+                  const target = openActionProduct;
+                  setOpenActionProduct(null);
+                  setMenuCoords(null);
+                  setArchivingProduct(target);
+                }}
+                className="w-full px-3 py-2 text-left text-xs font-semibold text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-500/10 flex items-center gap-2 transition-colors cursor-pointer"
+              >
+                <ArchiveIcon className="w-3.5 h-3.5 text-amber-500" />
+                <span>Archive</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  const target = openActionProduct;
+                  setOpenActionProduct(null);
+                  setMenuCoords(null);
+                  handleRestore(target);
+                }}
+                className="w-full px-3 py-2 text-left text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 flex items-center gap-2 transition-colors cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-emerald-500" />
+                <span>Restore</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                const target = openActionProduct;
+                setOpenActionProduct(null);
+                setMenuCoords(null);
+                setDeletingProduct(target);
+              }}
+              className="w-full px-3 py-2 text-left text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 flex items-center gap-2 transition-colors cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+              <span>Delete</span>
+            </button>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );

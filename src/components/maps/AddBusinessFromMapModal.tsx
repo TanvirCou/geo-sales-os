@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { createBusiness, BusinessInput } from "@/actions/businesses";
 import { useRouter } from "next/navigation";
 import { X, Building2, MapPin, CheckCircle2 } from "lucide-react";
+import { useToast } from "@/components/ui/Toast";
 
 export interface MapPointPreset {
   name: string;
@@ -28,6 +29,7 @@ export default function AddBusinessFromMapModal({
   onSuccess,
 }: AddBusinessFromMapModalProps) {
   const router = useRouter();
+  const toast = useToast();
   const [isPending, startTransition] = useTransition();
 
   const [formName, setFormName] = useState(preset?.name ?? "");
@@ -46,6 +48,7 @@ export default function AddBusinessFromMapModal({
   const handleSave = () => {
     if (!formName.trim()) {
       setFormError("Business name is required.");
+      toast.error("Business name is required.");
       return;
     }
 
@@ -65,7 +68,9 @@ export default function AddBusinessFromMapModal({
       const res = await createBusiness(payload);
       if (res?.error) {
         setFormError(res.error);
+        toast.error(res.error);
       } else {
+        toast.success(`"${formName.trim()}" converted to client successfully!`);
         onSuccess?.(formName.trim(), res?.businessId);
         router.refresh();
         onClose();

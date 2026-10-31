@@ -28,16 +28,15 @@ export async function getBusinesses(params?: {
 }) {
   await requireAuth();
 
-  const isActive = params?.isActive ?? true;
+  // If isActive is not explicitly passed, fetch ALL (both active & archived)
   const q = params?.q?.trim();
   const category = params?.category?.trim();
   const area = params?.area?.trim();
   const district = params?.district?.trim();
   const orderColor = params?.orderColor ?? "ALL";
 
-  const whereClause: any = {
-    isActive,
-  };
+  const whereClause: any =
+    params?.isActive !== undefined ? { isActive: params.isActive } : {};
 
   if (category && category !== "ALL") {
     whereClause.category = category;

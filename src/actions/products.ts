@@ -14,10 +14,11 @@ export interface ProductInput {
 export async function getProducts(params?: { q?: string; isActive?: boolean }) {
   await requireAuth();
 
-  const isActive = params?.isActive !== undefined ? params.isActive : true;
+  // If isActive is not explicitly passed, fetch ALL (both active & archived)
   const q = params?.q?.trim();
 
-  const whereClause: any = { isActive };
+  const whereClause: any =
+    params?.isActive !== undefined ? { isActive: params.isActive } : {};
 
   if (q) {
     whereClause.OR = [

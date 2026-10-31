@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import {
   createOrder,
@@ -12,8 +13,9 @@ import {
 import { useRouter } from "next/navigation";
 import { OrderStatus } from "@prisma/client";
 import { Pagination } from "@/components/ui/Pagination";
+import { useToast } from "@/components/ui/Toast";
 import RecordOrderModal from "@/components/orders/RecordOrderModal";
-import { Trash2, AlertTriangle } from "lucide-react";
+import { Trash2, AlertTriangle, MoreVertical, Eye, Ban } from "lucide-react";
 
 interface OrderItemDisplay {
   id: string;
@@ -59,7 +61,12 @@ export default function OrderListClient({
   products: ProductOption[];
 }) {
   const router = useRouter();
+  const toast = useToast();
   const [orders, setOrders] = useState<OrderDisplay[]>(initialOrders);
+
+  useEffect(() => {
+    setOrders(initialOrders);
+  }, [initialOrders]);
   const [q, setQ] = useState("");
   const [selectedStatus, setSelectedStatus] = useState<string>("ALL");
   const [currentPage, setCurrentPage] = useState(1);
@@ -67,7 +74,6 @@ export default function OrderListClient({
 
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [feedback, setFeedback] = useState<{ text: string; type: "success" | "error" } | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const openAddModal = () => {
@@ -88,6 +94,67 @@ export default function OrderListClient({
     businessName: string;
   } | null>(null);
 
+  const [openActionOrder, setOpenActionOrder] = useState<OrderDisplay | null>(null);
+  const [menuCoords, setMenuCoords] = useState<{ top?: number; bottom?: number; right: number } | null>(null);
+  const [mounted, setMounted] = useState(false);
+  const actionMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const handleToggleActionMenu = (e: React.MouseEvent<HTMLButtonElement>, o: OrderDisplay) => {
+    e.stopPropagation();
+    if (openActionOrder?.id === o.id) {
+      setOpenActionOrder(null);
+      setMenuCoords(null);
+      return;
+    }
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const openUpwards = spaceBelow < 200 && rect.top > 200;
+
+    if (openUpwards) {
+      setMenuCoords({
+        bottom: window.innerHeight - rect.top + 4,
+        right: window.innerWidth - rect.right,
+      });
+    } else {
+      setMenuCoords({
+        top: rect.bottom + 4,
+        right: window.innerWidth - rect.right,
+      });
+    }
+    setOpenActionOrder(o);
+  };
+
+  // Close 3-dot action menu when clicking outside, scrolling, or resizing
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (actionMenuRef.current && !actionMenuRef.current.contains(e.target as Node)) {
+        setOpenActionOrder(null);
+        setMenuCoords(null);
+      }
+    };
+    const handleScrollOrResize = () => {
+      if (openActionOrder) {
+        setOpenActionOrder(null);
+        setMenuCoords(null);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    window.addEventListener("scroll", handleScrollOrResize, true);
+    window.addEventListener("resize", handleScrollOrResize);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      window.removeEventListener("scroll", handleScrollOrResize, true);
+      window.removeEventListener("resize", handleScrollOrResize);
+    };
+  }, [openActionOrder]);
+
   const confirmCancelAction = () => {
     if (!cancellingOrder) return;
     const target = cancellingOrder;
@@ -95,12 +162,9 @@ export default function OrderListClient({
       const res = await cancelOrder(target.id);
       setCancellingOrder(null);
       if (res?.error) {
-        setFeedback({ text: res.error, type: "error" });
+        toast.error(res.error);
       } else {
-        setFeedback({
-          text: `Order #${target.extId || target.id.slice(0, 8)} marked as CANCELLED.`,
-          type: "success",
-        });
+        toast.warning(`Order #${target.extId || target.id.slice(0, 8)} marked as CANCELLED.`);
         router.refresh();
       }
     });
@@ -113,12 +177,9 @@ export default function OrderListClient({
       const res = await deleteOrder(target.id);
       setDeletingOrder(null);
       if (res?.error) {
-        setFeedback({ text: res.error, type: "error" });
+        toast.error(res.error);
       } else {
-        setFeedback({
-          text: `Order #${target.extId || target.id.slice(0, 8)} permanently deleted.`,
-          type: "success",
-        });
+        toast.success(`Order #${target.extId || target.id.slice(0, 8)} permanently deleted.`);
         router.refresh();
       }
     });
@@ -154,25 +215,6 @@ export default function OrderListClient({
 
   return (
     <div className="space-y-6">
-      {/* Feedback Banner */}
-      {feedback && (
-        <div
-          className={`flex items-center justify-between p-4 rounded-xl text-sm font-medium border transition-all ${
-            feedback.type === "error"
-              ? "bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-500/20"
-              : "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/20"
-          }`}
-        >
-          <span>{feedback.text}</span>
-          <button
-            onClick={() => setFeedback(null)}
-            className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-100 transition-colors p-1"
-          >
-            ✕
-          </button>
-        </div>
-      )}
-
       {/* Action / Search Bar */}
       <div className="bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-sm space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -228,14 +270,14 @@ export default function OrderListClient({
         <table className="w-full text-left border-collapse text-sm">
           <thead>
             <tr className="bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">
-              <th className="px-4 py-3.5">Order ID</th>
-              <th className="px-4 py-3.5">Client Business</th>
-              <th className="px-4 py-3.5">Area / District</th>
-              <th className="px-4 py-3.5">Status</th>
-              <th className="px-4 py-3.5">Items</th>
-              <th className="px-4 py-3.5 text-right">Total (BDT)</th>
-              <th className="px-4 py-3.5">Date</th>
-              <th className="px-4 py-3.5 text-right">Actions</th>
+              <th className="px-4 py-3.5 w-[130px] whitespace-nowrap">Order ID</th>
+              <th className="px-4 py-3.5 min-w-[180px]">Client Business</th>
+              <th className="px-4 py-3.5 min-w-[180px]">Area / District</th>
+              <th className="px-4 py-3.5 w-[120px] whitespace-nowrap">Status</th>
+              <th className="px-4 py-3.5 w-[150px] whitespace-nowrap">Items</th>
+              <th className="px-4 py-3.5 w-[140px] text-right whitespace-nowrap">Total (BDT)</th>
+              <th className="px-4 py-3.5 w-[120px] whitespace-nowrap">Date</th>
+              <th className="px-4 py-3.5 w-16 text-right whitespace-nowrap">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
@@ -248,7 +290,7 @@ export default function OrderListClient({
             ) : (
               paginatedOrders.map((o) => (
                 <tr key={o.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/30 transition-colors">
-                  <td className="px-4 py-3.5">
+                  <td className="px-4 py-3.5 whitespace-nowrap">
                     <Link
                       href={`/dashboard/orders/${o.id}`}
                       className="font-semibold text-blue-600 dark:text-blue-400 hover:underline font-mono text-xs"
@@ -256,7 +298,7 @@ export default function OrderListClient({
                       {o.externalOrderId || o.id.slice(0, 8)}
                     </Link>
                   </td>
-                  <td className="px-4 py-3.5">
+                  <td className="px-4 py-3.5 min-w-[180px]">
                     <Link
                       href={`/dashboard/businesses/${o.businessId}`}
                       className="font-medium text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
@@ -264,8 +306,8 @@ export default function OrderListClient({
                       {o.businessName}
                     </Link>
                   </td>
-                  <td className="px-4 py-3.5 text-slate-600 dark:text-slate-300">{o.businessArea}</td>
-                  <td className="px-4 py-3.5">
+                  <td className="px-4 py-3.5 text-slate-600 dark:text-slate-300 min-w-[180px]">{o.businessArea}</td>
+                  <td className="px-4 py-3.5 whitespace-nowrap">
                     <span
                       className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium border ${
                         o.status === "COMPLETED"
@@ -282,7 +324,7 @@ export default function OrderListClient({
                         : "Pending"}
                     </span>
                   </td>
-                  <td className="px-4 py-3.5 text-slate-600 dark:text-slate-300">
+                  <td className="px-4 py-3.5 text-slate-600 dark:text-slate-300 whitespace-nowrap">
                     {o.itemCount > 0 ? (
                       <span
                         title={o.items.map((i) => `${i.name} (${i.quantity})`).join(", ")}
@@ -296,54 +338,27 @@ export default function OrderListClient({
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-3.5 text-right font-semibold text-slate-900 dark:text-white font-mono text-xs tabular-nums">
+                  <td className="px-4 py-3.5 text-right font-semibold text-slate-900 dark:text-white font-mono text-xs tabular-nums whitespace-nowrap">
                     {o.totalBdt != null && o.totalBdt > 0
                       ? `BDT ${o.totalBdt.toLocaleString("en-US", { minimumFractionDigits: 2 })}`
                       : ""}
                   </td>
-                  <td className="px-4 py-3.5 text-xs text-slate-500 dark:text-slate-400">
+                  <td className="px-4 py-3.5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
                     {o.orderedAt ? new Date(o.orderedAt).toLocaleDateString() : <span className="text-slate-400">—</span>}
                   </td>
-                  <td className="px-4 py-3.5 text-right">
-                    <div className="inline-flex items-center gap-1.5">
-                      <Link
-                        href={`/dashboard/orders/${o.id}`}
-                        className="px-2.5 py-1 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-md text-xs font-medium transition-all shadow-sm"
-                      >
-                        View
-                      </Link>
-
-                      {/* Cancel option is ONLY shown for PENDING orders (Delivered orders cannot be cancelled) */}
-                      {o.status === "PENDING" && (
-                        <button
-                          onClick={() =>
-                            setCancellingOrder({
-                              id: o.id,
-                              extId: o.externalOrderId,
-                              businessName: o.businessName,
-                            })
-                          }
-                          className="px-2.5 py-1 bg-amber-50 dark:bg-amber-500/10 hover:bg-amber-100 dark:hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/30 rounded-md text-xs font-medium transition-all"
-                          title="Cancel pending order"
-                        >
-                          Cancel
-                        </button>
-                      )}
-
-                      <button
-                        onClick={() =>
-                          setDeletingOrder({
-                            id: o.id,
-                            extId: o.externalOrderId,
-                            businessName: o.businessName,
-                          })
-                        }
-                        className="px-2.5 py-1 bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30 rounded-md text-xs font-medium transition-all"
-                        title="Permanently remove mistaken entry"
-                      >
-                        Delete
-                      </button>
-                    </div>
+                  <td className="px-4 py-3.5 w-16 text-right whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={(e) => handleToggleActionMenu(e, o)}
+                      className={`p-1.5 rounded-lg border transition-all ${
+                        openActionOrder?.id === o.id
+                          ? "bg-slate-100 dark:bg-slate-800 text-blue-600 dark:text-blue-400 border-slate-300 dark:border-slate-700 shadow-sm"
+                          : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/70 border-transparent hover:border-slate-200 dark:hover:border-slate-700"
+                      }`}
+                      title="Actions"
+                    >
+                      <MoreVertical className="w-4 h-4" />
+                    </button>
                   </td>
                 </tr>
               ))
@@ -368,7 +383,7 @@ export default function OrderListClient({
         businesses={businesses}
         products={products}
         onSuccess={() => {
-          setFeedback({ text: "Order recorded successfully. Business marker updated.", type: "success" });
+          toast.success("Order recorded. Business map marker updated.");
         }}
       />
 
@@ -464,6 +479,89 @@ export default function OrderListClient({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Floating 3-Dot Action Menu Portal */}
+      {mounted && openActionOrder && menuCoords && typeof document !== "undefined" && createPortal(
+        <div
+          ref={actionMenuRef}
+          style={{
+            position: "fixed",
+            top: menuCoords.top !== undefined ? `${menuCoords.top}px` : undefined,
+            bottom: menuCoords.bottom !== undefined ? `${menuCoords.bottom}px` : undefined,
+            right: `${menuCoords.right}px`,
+            zIndex: 9999,
+          }}
+          className="w-44 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl py-1 animate-fade-in divide-y divide-slate-100 dark:divide-slate-800/80"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="py-1">
+            <Link
+              href={`/dashboard/orders/${openActionOrder.id}`}
+              onClick={() => {
+                setOpenActionOrder(null);
+                setMenuCoords(null);
+              }}
+              className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/70 flex items-center gap-2 transition-colors"
+            >
+              <Eye className="w-3.5 h-3.5 text-slate-400" />
+              <span>View Order</span>
+            </Link>
+
+            <Link
+              href={`/dashboard/businesses/${openActionOrder.businessId}`}
+              onClick={() => {
+                setOpenActionOrder(null);
+                setMenuCoords(null);
+              }}
+              className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/70 flex items-center gap-2 transition-colors"
+            >
+              <Eye className="w-3.5 h-3.5 text-blue-400" />
+              <span>View Business</span>
+            </Link>
+          </div>
+
+          <div className="py-1">
+            {openActionOrder.status === "PENDING" && (
+              <button
+                type="button"
+                onClick={() => {
+                  const target = openActionOrder;
+                  setOpenActionOrder(null);
+                  setMenuCoords(null);
+                  setCancellingOrder({
+                    id: target.id,
+                    extId: target.externalOrderId,
+                    businessName: target.businessName,
+                  });
+                }}
+                className="w-full px-3 py-2 text-left text-xs font-semibold text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-500/10 flex items-center gap-2 transition-colors cursor-pointer"
+              >
+                <Ban className="w-3.5 h-3.5 text-amber-500" />
+                <span>Cancel Order</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                const target = openActionOrder;
+                setOpenActionOrder(null);
+                setMenuCoords(null);
+                setDeletingOrder({
+                  id: target.id,
+                  extId: target.externalOrderId,
+                  businessName: target.businessName,
+                });
+              }}
+              className="w-full px-3 py-2 text-left text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 flex items-center gap-2 transition-colors cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+              <span>Delete Order</span>
+            </button>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );

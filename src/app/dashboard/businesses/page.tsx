@@ -6,7 +6,7 @@ export const metadata: Metadata = { title: "Businesses — GeoSales OS" };
 
 export default async function BusinessesPage() {
   const [businesses, filterOptions] = await Promise.all([
-    getBusinesses({ isActive: true }),
+    getBusinesses({}), // fetch all: active + archived; client handles isActive filter
     getBusinessFilterOptions(),
   ]);
 

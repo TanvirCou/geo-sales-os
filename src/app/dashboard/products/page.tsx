@@ -5,7 +5,7 @@ import ProductListClient from "@/components/products/ProductListClient";
 export const metadata: Metadata = { title: "Products — GeoSales OS" };
 
 export default async function ProductsPage() {
-  const products = await getProducts({ isActive: true });
+  const products = await getProducts({}); // fetch all: active + archived; client handles isActive filter
 
   return (
     <div className="space-y-6">
