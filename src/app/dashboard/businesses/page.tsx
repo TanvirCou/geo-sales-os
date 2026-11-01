@@ -14,12 +14,12 @@ export default async function BusinessesPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div>
-        <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+      <div className="pb-4 border-b border-slate-200 dark:border-slate-800">
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
           Client Businesses
         </h1>
-        <p className="text-sm md:text-base text-slate-500 dark:text-slate-400 mt-1">
-          Directory of client accounts who have purchased products. Manage client details, GPS locations, and order histories.
+        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+          Centralized directory of client accounts. Manage business profiles, geographic coordinates, and purchase histories across regional territories.
         </p>
       </div>
 

@@ -55,6 +55,24 @@ export default function RecordOrderModal({
   const [formStatus, setFormStatus] = useState<OrderStatus | "">("" as OrderStatus | "");
   const [formError, setFormError] = useState<string | null>(null);
 
+  // Field validation errors
+  const [fieldErrors, setFieldErrors] = useState<{
+    business?: string;
+    extId?: string;
+    date?: string;
+    status?: string;
+    items?: string;
+  }>({});
+
+  const clearFieldError = (field: "business" | "extId" | "date" | "status" | "items") => {
+    setFieldErrors((prev) => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  };
+
   // Line items state
   const [formItems, setFormItems] = useState<
     Array<{ productId: string; quantity: number; unitPriceBdt: number }>
@@ -80,6 +98,7 @@ export default function RecordOrderModal({
       setFormDate(new Date().toISOString().split("T")[0]);
       setFormStatus("" as OrderStatus | "");
       setFormError(null);
+      setFieldErrors({});
 
       // Default line item: start with unselected product so user must explicitly choose
       setFormItems([{ productId: "", quantity: 1, unitPriceBdt: 0 }]);
@@ -117,6 +136,7 @@ export default function RecordOrderModal({
     .slice(0, 8);
 
   const handleProductSelect = (index: number, productId: string) => {
+    clearFieldError("items");
     const prod = products.find((p) => p.id === productId);
     setFormItems(
       formItems.map((item, i) =>
@@ -136,6 +156,7 @@ export default function RecordOrderModal({
     field: "quantity" | "unitPriceBdt",
     value: number
   ) => {
+    clearFieldError("items");
     setFormItems(
       formItems.map((item, i) =>
         i === index ? { ...item, [field]: value } : item
@@ -144,6 +165,7 @@ export default function RecordOrderModal({
   };
 
   const addItemRow = () => {
+    clearFieldError("items");
     setFormItems([
       ...formItems,
       {
@@ -165,34 +187,56 @@ export default function RecordOrderModal({
   );
 
   const handleSaveOrder = () => {
+    const errors: {
+      business?: string;
+      extId?: string;
+      date?: string;
+      status?: string;
+      items?: string;
+    } = {};
+
     if (!selectedBusiness?.id) {
-      setFormError("Please select a business for this order.");
-      return;
+      errors.business = "Please select a client business.";
     }
+
+    if (!formExtId.trim()) {
+      errors.extId = "Order Reference ID is required.";
+    }
+
+    if (!formDate.trim()) {
+      errors.date = "Order Date is required.";
+    }
+
     if (!formStatus) {
-      setFormError("Please select an order status.");
-      return;
+      errors.status = "Order Status is required.";
     }
+
     if (formItems.length === 0) {
-      setFormError("Please add at least one line item.");
+      errors.items = "Please add at least one line item.";
+    } else {
+      const hasUnselectedProduct = formItems.some(
+        (it) => !it.productId || it.productId.trim() === ""
+      );
+      if (hasUnselectedProduct) {
+        errors.items = "Please select a product for all line items.";
+      } else {
+        const hasInvalidQtyOrPrice = formItems.some(
+          (it) => isNaN(it.quantity) || it.quantity <= 0 || isNaN(it.unitPriceBdt) || it.unitPriceBdt < 0
+        );
+        if (hasInvalidQtyOrPrice) {
+          errors.items = "Please enter valid positive quantities and unit prices for all items.";
+        }
+      }
+    }
+
+    if (Object.keys(errors).length > 0 || !selectedBusiness) {
+      setFieldErrors(errors);
+      setFormError(null);
       return;
     }
 
-    const hasUnselectedProduct = formItems.some(
-      (it) => !it.productId || it.productId.trim() === ""
-    );
-    if (hasUnselectedProduct) {
-      setFormError("Please select a product for all order items.");
-      return;
-    }
-
-    const hasInvalidQtyOrPrice = formItems.some(
-      (it) => isNaN(it.quantity) || it.quantity <= 0 || isNaN(it.unitPriceBdt) || it.unitPriceBdt < 0
-    );
-    if (hasInvalidQtyOrPrice) {
-      setFormError("Please enter valid positive quantities and rates for all items.");
-      return;
-    }
+    setFieldErrors({});
+    setFormError(null);
 
     const payload: OrderInput = {
       businessId: selectedBusiness.id,
@@ -257,7 +301,7 @@ export default function RecordOrderModal({
           {/* ── Client Business Searchable Selector ────────────────────────── */}
           <div ref={businessSearchContainerRef} className="md:col-span-2 space-y-1.5 relative">
             <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-              Client Business *
+              Client Business <span className="text-rose-500 font-bold ml-0.5">*</span>
             </label>
 
             {selectedBusiness ? (
@@ -287,7 +331,7 @@ export default function RecordOrderModal({
                     setBusinessSearchQuery("");
                     setShowBusinessDropdown(true);
                   }}
-                  className="px-2.5 py-1 text-xs font-semibold rounded-lg text-blue-600 dark:text-blue-400 bg-white dark:bg-slate-800 hover:bg-blue-100/50 dark:hover:bg-slate-700 border border-blue-200 dark:border-blue-500/30 transition-all shrink-0 ml-2"
+                  className="px-2.5 py-1 text-xs font-semibold rounded-lg text-blue-600 dark:text-blue-400 bg-white dark:bg-slate-800 hover:bg-blue-100/50 dark:hover:bg-slate-700 border border-blue-200 dark:border-blue-500/30 transition-all shrink-0 ml-2 cursor-pointer"
                 >
                   Change Business
                 </button>
@@ -304,10 +348,20 @@ export default function RecordOrderModal({
                     }}
                     onFocus={() => setShowBusinessDropdown(true)}
                     placeholder="Search business by name, area or phone..."
-                    className="w-full pl-9 pr-4 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 shadow-sm"
+                    className={`w-full pl-9 pr-4 py-2.5 bg-white dark:bg-slate-800 rounded-xl text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none shadow-sm transition-colors ${
+                      fieldErrors.business
+                        ? "border border-rose-500 bg-rose-50/20 dark:bg-rose-950/20 focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500"
+                        : "border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
+                    }`}
                   />
                   <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 </div>
+
+                {fieldErrors.business && (
+                  <p className="text-xs text-rose-500 font-medium mt-1 animate-fade-in flex items-center gap-1">
+                    <span>{fieldErrors.business}</span>
+                  </p>
+                )}
 
                 {showBusinessDropdown && (
                   <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl overflow-hidden max-h-56 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 animate-fade-in">
@@ -326,9 +380,10 @@ export default function RecordOrderModal({
                           onClick={() => {
                             setSelectedBusiness(b);
                             setShowBusinessDropdown(false);
+                            clearFieldError("business");
                             setFormError(null);
                           }}
-                          className="w-full px-3.5 py-2.5 text-left hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors flex items-center justify-between gap-3 group"
+                          className="w-full px-3.5 py-2.5 text-left hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors flex items-center justify-between gap-3 group cursor-pointer"
                         >
                           <div className="min-w-0">
                             <p className="text-xs font-bold text-slate-900 dark:text-slate-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 truncate">
@@ -353,40 +408,71 @@ export default function RecordOrderModal({
 
           <div className="space-y-1">
             <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
-              Order Reference ID
+              Order Reference ID <span className="text-rose-500 font-bold ml-0.5">*</span>
             </label>
             <input
               type="text"
               value={formExtId}
-              onChange={(e) => setFormExtId(e.target.value)}
+              onChange={(e) => {
+                setFormExtId(e.target.value);
+                if (e.target.value.trim() && fieldErrors.extId) clearFieldError("extId");
+              }}
               placeholder="e.g. ORD-2026-001"
-              className="w-full px-3.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 font-mono shadow-sm"
+              className={`w-full px-3.5 py-2 bg-white dark:bg-slate-800 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none font-mono shadow-sm transition-colors ${
+                fieldErrors.extId
+                  ? "border border-rose-500 bg-rose-50/20 dark:bg-rose-950/20 focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500"
+                  : "border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
+              }`}
             />
+            {fieldErrors.extId && (
+              <p className="text-xs text-rose-500 font-medium mt-1 animate-fade-in flex items-center gap-1">
+                <span>{fieldErrors.extId}</span>
+              </p>
+            )}
           </div>
 
           <div className="space-y-1">
             <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
-              Order Date
+              Order Date <span className="text-rose-500 font-bold ml-0.5">*</span>
             </label>
             <input
               type="date"
               value={formDate}
-              onChange={(e) => setFormDate(e.target.value)}
-              className="w-full px-3.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 shadow-sm"
+              onChange={(e) => {
+                setFormDate(e.target.value);
+                if (e.target.value.trim() && fieldErrors.date) clearFieldError("date");
+              }}
+              className={`w-full px-3.5 py-2 bg-white dark:bg-slate-800 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none shadow-sm transition-colors ${
+                fieldErrors.date
+                  ? "border border-rose-500 bg-rose-50/20 dark:bg-rose-950/20 focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500"
+                  : "border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
+              }`}
             />
+            {fieldErrors.date && (
+              <p className="text-xs text-rose-500 font-medium mt-1 animate-fade-in flex items-center gap-1">
+                <span>{fieldErrors.date}</span>
+              </p>
+            )}
           </div>
 
           <div className="md:col-span-2 space-y-1">
             <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
-              Order Status
+              Order Status <span className="text-rose-500 font-bold ml-0.5">*</span>
             </label>
             <select
               value={formStatus}
-              onChange={(e) => setFormStatus(e.target.value as OrderStatus | "")}
-              className={`w-full px-3.5 py-2 bg-white dark:bg-slate-800 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 shadow-sm ${
+              onChange={(e) => {
+                setFormStatus(e.target.value as OrderStatus | "");
+                if (e.target.value && fieldErrors.status) clearFieldError("status");
+              }}
+              className={`w-full px-3.5 py-2 bg-white dark:bg-slate-800 rounded-lg text-sm focus:outline-none shadow-sm cursor-pointer transition-colors ${
+                fieldErrors.status
+                  ? "border border-rose-500 bg-rose-50/20 dark:bg-rose-950/20 focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500"
+                  : "border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
+              } ${
                 formStatus === ""
-                  ? "border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-500"
-                  : "border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100"
+                  ? "text-slate-400 dark:text-slate-500"
+                  : "text-slate-900 dark:text-slate-100"
               }`}
             >
               <option value="" disabled>— Select a Status —</option>
@@ -394,6 +480,11 @@ export default function RecordOrderModal({
               <option value={OrderStatus.COMPLETED}>Delivered</option>
               <option value={OrderStatus.CANCELLED}>Cancelled</option>
             </select>
+            {fieldErrors.status && (
+              <p className="text-xs text-rose-500 font-medium mt-1 animate-fade-in flex items-center gap-1">
+                <span>{fieldErrors.status}</span>
+              </p>
+            )}
           </div>
         </div>
 
@@ -401,29 +492,39 @@ export default function RecordOrderModal({
         <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3">
           <div className="flex items-center justify-between">
             <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">
-              Order Items & Pricing
+              Order Items & Pricing <span className="text-rose-500 font-bold ml-0.5">*</span>
             </h4>
             <button
               type="button"
               onClick={addItemRow}
-              className="inline-flex items-center gap-1 px-3 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold transition-all"
+              className="inline-flex items-center gap-1 px-3 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold transition-all cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Add Item</span>
             </button>
           </div>
 
+          {fieldErrors.items && (
+            <p className="text-xs text-rose-500 font-medium animate-fade-in flex items-center gap-1">
+              <span>{fieldErrors.items}</span>
+            </p>
+          )}
+
           <div className="space-y-2.5">
             {formItems.map((item, idx) => (
               <div
                 key={idx}
-                className="flex flex-col sm:grid sm:grid-cols-[1fr_80px_110px_36px] gap-2 p-2.5 sm:p-0 bg-slate-50 dark:bg-slate-800/40 sm:bg-transparent sm:dark:bg-transparent rounded-lg border sm:border-0 border-slate-200 dark:border-slate-700/60 items-center"
+                className="flex flex-col sm:grid sm:grid-cols-[1fr_80px_110px_90px_36px] gap-2 p-2.5 sm:p-0 bg-slate-50 dark:bg-slate-800/40 sm:bg-transparent sm:dark:bg-transparent rounded-lg border sm:border-0 border-slate-200 dark:border-slate-700/60 items-center"
               >
                 <div className="w-full">
                   <select
                     value={item.productId}
                     onChange={(e) => handleProductSelect(idx, e.target.value)}
-                    className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-200 focus:outline-none focus:border-blue-500 shadow-sm"
+                    className={`w-full px-3 py-2 bg-white dark:bg-slate-800 rounded-lg text-sm text-slate-900 dark:text-slate-200 focus:outline-none shadow-sm cursor-pointer transition-colors ${
+                      !item.productId && fieldErrors.items
+                        ? "border border-rose-500 bg-rose-50/20 dark:bg-rose-950/20 focus:ring-2 focus:ring-rose-500/30"
+                        : "border border-slate-200 dark:border-slate-700 focus:border-blue-500"
+                    }`}
                   >
                     <option value="" disabled>
                       — Select a product —
@@ -465,11 +566,15 @@ export default function RecordOrderModal({
                     />
                   </div>
 
+                  <div className="hidden sm:block text-right text-xs font-mono font-bold text-slate-700 dark:text-slate-300 px-1 truncate">
+                    ৳{((item.quantity || 0) * (item.unitPriceBdt || 0)).toLocaleString("en-US", { minimumFractionDigits: 0 })}
+                  </div>
+
                   <button
                     type="button"
                     onClick={() => removeItemRow(idx)}
                     disabled={formItems.length === 1}
-                    className="h-9 w-9 shrink-0 flex items-center justify-center rounded-lg bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-500/20 disabled:opacity-30 transition-colors border border-rose-100 dark:border-transparent"
+                    className="h-9 w-9 shrink-0 flex items-center justify-center rounded-lg bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-500/20 disabled:opacity-30 transition-colors border border-rose-100 dark:border-transparent cursor-pointer"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>

@@ -118,27 +118,8 @@ export function TopNavbar() {
         </nav>
       </div>
 
-      {/* Right Actions: DB indicator, Quick Map & Theme Toggle */}
+      {/* Right Actions: Theme Toggle */}
       <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-        {/* PostgreSQL Database Indicator */}
-        <div className="hidden sm:flex items-center gap-2 px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-700 dark:text-slate-300 transition-colors">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-          </span>
-          <span className="font-mono text-emerald-600 dark:text-emerald-400 font-medium">PostgreSQL Connected</span>
-        </div>
-
-        {/* Desktop Quick Map link */}
-        <Link
-          href="/dashboard/map/geoapify"
-          title="Open Geo-Map"
-          className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-sm shadow-blue-600/30 transition-all active:scale-95"
-        >
-          <span>🗺️</span>
-          <span>Dual Map</span>
-        </Link>
-
         {/* Theme Toggle Button */}
         <ThemeToggle />
       </div>

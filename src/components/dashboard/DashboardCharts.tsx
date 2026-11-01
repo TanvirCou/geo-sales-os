@@ -15,9 +15,7 @@ import {
   Building2,
   Sparkles,
   Layers,
-  ChevronRight,
 } from "lucide-react";
-import Link from "next/link";
 import {
   MonthlyTrendItem,
   DistrictSalesItem,
@@ -129,25 +127,25 @@ export default function DashboardCharts({
 
   // ── 3. Status Donut Chart Calculations ──────────────────────────────────────
   const donutSize = 170;
-  const strokeWidth = 24;
+  const strokeWidth = 20;
   const radius = (donutSize - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
 
   const statusColors: Record<string, { stroke: string; bg: string; text: string; icon: any }> = {
     COMPLETED: {
-      stroke: "#10b981", // emerald-500
+      stroke: "#10b981", // emerald-500: balanced executive emerald green
       bg: "bg-emerald-50 dark:bg-emerald-500/10",
       text: "text-emerald-700 dark:text-emerald-400",
       icon: CheckCircle2,
     },
     PENDING: {
-      stroke: "#f59e0b", // amber-500
+      stroke: "#f59e0b", // amber-500: rich balanced amber gold
       bg: "bg-amber-50 dark:bg-amber-500/10",
       text: "text-amber-700 dark:text-amber-400",
       icon: Clock,
     },
     CANCELLED: {
-      stroke: "#f43f5e", // rose-500
+      stroke: "#ef4444", // red-500: balanced vibrant red
       bg: "bg-rose-50 dark:bg-rose-500/10",
       text: "text-rose-700 dark:text-rose-400",
       icon: XCircle,
@@ -212,7 +210,7 @@ export default function DashboardCharts({
               <span className="text-slate-500 dark:text-slate-400">
                 Avg: <strong className="text-slate-700 dark:text-slate-200">{formatBDT(avgOrderValue)}</strong>
               </span>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-500/20">
                 <CheckCircle2 className="w-3 h-3" />
                 <span>{completedPct}% Delivered</span>
               </span>
@@ -226,7 +224,7 @@ export default function DashboardCharts({
             <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
               Registered Clients
             </span>
-            <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60 dark:border-indigo-500/20 flex items-center justify-center transition-transform group-hover:scale-105">
+            <div className="w-10 h-10 rounded-xl bg-teal-50 dark:bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-200/60 dark:border-teal-500/20 flex items-center justify-center transition-transform group-hover:scale-105">
               <Building2 className="w-5 h-5" />
             </div>
           </div>
@@ -238,9 +236,9 @@ export default function DashboardCharts({
               <span className="text-slate-500 dark:text-slate-400">
                 {totalProducts} Catalog SKUs
               </span>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                <span>2,075 Active Pins</span>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-teal-50 dark:bg-teal-500/10 text-teal-700 dark:text-teal-400 border border-teal-200 dark:border-teal-500/20">
+                <span className="w-1.5 h-1.5 rounded-full bg-teal-500" />
+                <span>{totalBusinesses.toLocaleString("en-US")} Active Pins</span>
               </span>
             </div>
           </div>
@@ -706,7 +704,7 @@ export default function DashboardCharts({
                           strokeWidth={strokeWidth}
                           strokeDasharray={strokeDasharray}
                           strokeDashoffset={strokeDashoffset}
-                          strokeLinecap="round"
+                          strokeLinecap="butt"
                           className="transition-all duration-500"
                         />
                       );
@@ -779,22 +777,13 @@ export default function DashboardCharts({
 
       {/* ── Section 3: Territory Performance Leaderboard (Ranked Summary) ─── */}
       <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-5 sm:p-6 shadow-sm">
-        <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
-          <div>
-            <h3 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">
-              Territory Performance Matrix
-            </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Comparative order volume and revenue generation ranked by district
-            </p>
-          </div>
-          <Link
-            href="/dashboard/map/google"
-            className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
-          >
-            <span>View on Territory Map</span>
-            <ChevronRight className="w-3.5 h-3.5" />
-          </Link>
+        <div className="pb-4 border-b border-slate-100 dark:border-slate-800">
+          <h3 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">
+            Territory Performance Matrix
+          </h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            Comparative order volume and revenue generation ranked by district
+          </p>
         </div>
 
         <div className="mt-4 overflow-x-auto">

@@ -31,6 +31,7 @@ import {
   Eye,
   RotateCcw,
   Navigation,
+  X,
 } from "lucide-react";
 
 interface BusinessItem {
@@ -162,6 +163,24 @@ export default function BusinessListClient({
   const [formLng, setFormLng] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
 
+  // Field-level validation errors (shows inline under the input)
+  const [fieldErrors, setFieldErrors] = useState<{
+    name?: string;
+    district?: string;
+    phone?: string;
+    address?: string;
+    mapPin?: string;
+  }>({});
+
+  const clearFieldError = (field: "name" | "district" | "phone" | "address" | "mapPin") => {
+    setFieldErrors((prev) => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  };
+
   // Auto-geocoding state
   const [isGeocoding, setIsGeocoding] = useState(false);
   const [geocodeFeedback, setGeocodeFeedback] = useState<{ text: string; success: boolean } | null>(null);
@@ -222,12 +241,17 @@ export default function BusinessListClient({
     // Prevent the useEffect from re-triggering a search after setting the query
     justSelectedRef.current = true;
     setFormMapQuery(item.formatted);
+    clearFieldError("mapPin");
     // If physical address is still empty, populate it as a convenience
     if (!formAddress.trim()) {
       setFormAddress(item.formatted);
+      clearFieldError("address");
     }
     if (item.area) setFormArea(item.area);
-    if (item.district) setFormDistrict(item.district);
+    if (item.district) {
+      setFormDistrict(item.district);
+      clearFieldError("district");
+    }
     setFormLat(item.latitude.toFixed(6));
     setFormLng(item.longitude.toFixed(6));
     setShowAddressSuggestions(false);
@@ -266,9 +290,16 @@ export default function BusinessListClient({
         const top = suggestions[0];
         justSelectedRef.current = true; // prevent dropdown from reopening
         setFormMapQuery(top.formatted);
-        if (!formAddress.trim()) setFormAddress(top.formatted);
+        clearFieldError("mapPin");
+        if (!formAddress.trim()) {
+          setFormAddress(top.formatted);
+          clearFieldError("address");
+        }
         if (top.area) setFormArea(top.area);
-        if (top.district) setFormDistrict(top.district);
+        if (top.district) {
+          setFormDistrict(top.district);
+          clearFieldError("district");
+        }
         setFormLat(top.latitude.toFixed(6));
         setFormLng(top.longitude.toFixed(6));
         setGeocodeFeedback({
@@ -283,14 +314,17 @@ export default function BusinessListClient({
       if (res.success && res.latitude && res.longitude) {
         setFormLat(res.latitude.toFixed(6));
         setFormLng(res.longitude.toFixed(6));
+        clearFieldError("mapPin");
         if (res.resolvedDistrict) {
           setFormDistrict(res.resolvedDistrict);
+          clearFieldError("district");
         }
         if (res.formattedAddress) {
           justSelectedRef.current = true;
           setFormMapQuery(res.formattedAddress);
           if (!formAddress.trim()) {
             setFormAddress(res.formattedAddress);
+            clearFieldError("address");
           }
         }
         setGeocodeFeedback({
@@ -327,6 +361,7 @@ export default function BusinessListClient({
     setFormLat("");
     setFormLng("");
     setFormError(null);
+    setFieldErrors({});
     setGeocodeFeedback(null);
     setAddressSuggestions([]);
     setShowAddressSuggestions(false);
@@ -346,6 +381,7 @@ export default function BusinessListClient({
     setFormLat(b.latitude != null ? String(b.latitude) : "");
     setFormLng(b.longitude != null ? String(b.longitude) : "");
     setFormError(null);
+    setFieldErrors({});
     setGeocodeFeedback(null);
     setAddressSuggestions([]);
     setShowAddressSuggestions(false);
@@ -353,14 +389,37 @@ export default function BusinessListClient({
   };
 
   const handleSave = () => {
+    const errors: {
+      name?: string;
+      district?: string;
+      phone?: string;
+      address?: string;
+    } = {};
+
     if (!formName.trim()) {
-      setFormError("Business name is required.");
-      return;
+      errors.name = "Business name is required.";
     }
+
     if (!formDistrict.trim()) {
-      setFormError("Please select a district.");
+      errors.district = "District is required.";
+    }
+
+    if (!formPhone.trim()) {
+      errors.phone = "Phone number is required.";
+    }
+
+    if (!formAddress.trim()) {
+      errors.address = "Physical address is required.";
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      setFormError(null);
       return;
     }
+
+    setFieldErrors({});
+    setFormError(null);
 
     const resolvedArea =
       formArea.trim() ||
@@ -707,9 +766,19 @@ export default function BusinessListClient({
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
           <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 sm:p-6 shadow-2xl space-y-5 text-slate-900 dark:text-slate-100">
-            <h3 className="text-lg font-bold">
-              {editingBusiness ? "Edit Business" : "Add New Business"}
-            </h3>
+            <div className="flex items-center justify-between pb-1 border-b border-slate-100 dark:border-slate-800">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+                {editingBusiness ? "Edit Business" : "Add New Business"}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                title="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
             {formError && (
               <div className="p-3.5 rounded-lg bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 text-rose-700 dark:text-rose-300 text-sm">
@@ -718,17 +787,33 @@ export default function BusinessListClient({
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Business Name (Required) */}
               <div className="md:col-span-2 space-y-1">
-                <label className="text-xs font-medium text-slate-700 dark:text-slate-300">Business Name *</label>
+                <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                  Business Name <span className="text-rose-500 font-bold ml-0.5">*</span>
+                </label>
                 <input
                   type="text"
                   value={formName}
-                  onChange={(e) => setFormName(e.target.value)}
+                  onChange={(e) => {
+                    setFormName(e.target.value);
+                    if (e.target.value.trim()) clearFieldError("name");
+                  }}
                   placeholder="e.g. Sultan's Dine"
-                  className="w-full px-3.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 shadow-sm"
+                  className={`w-full px-3.5 py-2 bg-white dark:bg-slate-800 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none shadow-sm transition-colors ${
+                    fieldErrors.name
+                      ? "border border-rose-500 bg-rose-50/20 dark:bg-rose-950/20 focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500"
+                      : "border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
+                  }`}
                 />
+                {fieldErrors.name && (
+                  <p className="text-xs text-rose-500 font-medium mt-1 animate-fade-in flex items-center gap-1">
+                    <span>{fieldErrors.name}</span>
+                  </p>
+                )}
               </div>
 
+              {/* Category */}
               <div className="space-y-1">
                 <label className="text-xs font-medium text-slate-700 dark:text-slate-300">Category</label>
                 <input
@@ -740,12 +825,22 @@ export default function BusinessListClient({
                 />
               </div>
 
+              {/* District (Required) */}
               <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700 dark:text-slate-300">District</label>
+                <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                  District <span className="text-rose-500 font-bold ml-0.5">*</span>
+                </label>
                 <select
                   value={formDistrict}
-                  onChange={(e) => setFormDistrict(e.target.value)}
-                  className="w-full px-3.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 shadow-sm cursor-pointer"
+                  onChange={(e) => {
+                    setFormDistrict(e.target.value);
+                    if (e.target.value.trim()) clearFieldError("district");
+                  }}
+                  className={`w-full px-3.5 py-2 bg-white dark:bg-slate-800 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none shadow-sm cursor-pointer transition-colors ${
+                    fieldErrors.district
+                      ? "border border-rose-500 bg-rose-50/20 dark:bg-rose-950/20 focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500"
+                      : "border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
+                  }`}
                 >
                   <option value="" disabled>
                     — Select a district —
@@ -756,8 +851,14 @@ export default function BusinessListClient({
                     </option>
                   ))}
                 </select>
+                {fieldErrors.district && (
+                  <p className="text-xs text-rose-500 font-medium mt-1 animate-fade-in flex items-center gap-1">
+                    <span>{fieldErrors.district}</span>
+                  </p>
+                )}
               </div>
 
+              {/* Contact Person */}
               <div className="space-y-1">
                 <label className="text-xs font-medium text-slate-700 dark:text-slate-300">Contact Person</label>
                 <input
@@ -769,42 +870,68 @@ export default function BusinessListClient({
                 />
               </div>
 
+              {/* Phone Number (Required) */}
               <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700 dark:text-slate-300">Phone Number</label>
+                <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                  Phone Number <span className="text-rose-500 font-bold ml-0.5">*</span>
+                </label>
                 <input
                   type="text"
                   value={formPhone}
-                  onChange={(e) => setFormPhone(e.target.value)}
+                  onChange={(e) => {
+                    setFormPhone(e.target.value);
+                    if (e.target.value.trim()) clearFieldError("phone");
+                  }}
                   placeholder="e.g. 01711-223344"
-                  className="w-full px-3.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 shadow-sm"
+                  className={`w-full px-3.5 py-2 bg-white dark:bg-slate-800 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none shadow-sm transition-colors ${
+                    fieldErrors.phone
+                      ? "border border-rose-500 bg-rose-50/20 dark:bg-rose-950/20 focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500"
+                      : "border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
+                  }`}
                 />
+                {fieldErrors.phone && (
+                  <p className="text-xs text-rose-500 font-medium mt-1 animate-fade-in flex items-center gap-1">
+                    <span>{fieldErrors.phone}</span>
+                  </p>
+                )}
               </div>
 
-              {/* ── 1. Physical / Invoice Address ──────────────────────────── */}
+              {/* ── 1. Physical / Invoice Address (Required) ────────────────── */}
               <div className="md:col-span-2 space-y-1">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Physical Address / Location (সাধারণ ঠিকানা) *
-                  </label>
-                  <span className="text-[11px] font-medium text-slate-400">
-                    ইনভয়েস ও কাস্টমার ঠিকানা
-                  </span>
-                </div>
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Physical Address / Location{" "}
+                  <span className="text-rose-500 font-bold ml-0.5">*</span>
+                </label>
                 <input
                   type="text"
                   value={formAddress}
-                  onChange={(e) => setFormAddress(e.target.value)}
-                  placeholder="e.g. Dania Road, Shoni Akhra, Dhaka (বা দোকান নং, রোড)"
-                  className="w-full px-3.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 shadow-sm"
+                  onChange={(e) => {
+                    setFormAddress(e.target.value);
+                    if (e.target.value.trim()) clearFieldError("address");
+                  }}
+                  placeholder="e.g. Dania Road, Shoni Akhra, Dhaka"
+                  className={`w-full px-3.5 py-2 bg-white dark:bg-slate-800 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none shadow-sm transition-colors ${
+                    fieldErrors.address
+                      ? "border border-rose-500 bg-rose-50/20 dark:bg-rose-950/20 focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500"
+                      : "border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
+                  }`}
                 />
+                {fieldErrors.address && (
+                  <p className="text-xs text-rose-500 font-medium mt-1 animate-fade-in flex items-center gap-1">
+                    <span>{fieldErrors.address}</span>
+                  </p>
+                )}
               </div>
 
-              {/* ── 2. Map Pin & GPS Search (with Live Autocomplete) ──────────── */}
-              <div ref={addressContainerRef} className="md:col-span-2 space-y-2 relative p-3 rounded-xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/60">
+              {/* ── 2. Map Location Search (Optional) ── */}
+              <div
+                ref={addressContainerRef}
+                className="md:col-span-2 space-y-2 relative p-3 rounded-xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/60"
+              >
                 <div className="flex items-center justify-between gap-2">
                   <label className="text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                     <MapPin className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                    <span>Map Pin Search (ম্যাপ লোকেশন ও পিন)</span>
+                    <span>Map Location Search</span>
                   </label>
                   <button
                     type="button"
@@ -891,25 +1018,39 @@ export default function BusinessListClient({
                 )}
               </div>
 
+              {/* Latitude (Optional) */}
               <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700 dark:text-slate-300">Latitude (GPS)</label>
+                <label className="text-xs font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <span>Latitude (GPS)</span>
+                  <span className="text-slate-400 font-normal text-[11px]">(Optional)</span>
+                </label>
                 <input
                   type="number"
                   step="any"
                   value={formLat}
-                  onChange={(e) => setFormLat(e.target.value)}
+                  onChange={(e) => {
+                    setFormLat(e.target.value);
+                    if (e.target.value.trim() && formLng.trim()) clearFieldError("mapPin");
+                  }}
                   placeholder="e.g. 23.740510 (auto-filled)"
                   className="w-full px-3.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 shadow-sm"
                 />
               </div>
 
+              {/* Longitude (Optional) */}
               <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700 dark:text-slate-300">Longitude (GPS)</label>
+                <label className="text-xs font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <span>Longitude (GPS)</span>
+                  <span className="text-slate-400 font-normal text-[11px]">(Optional)</span>
+                </label>
                 <input
                   type="number"
                   step="any"
                   value={formLng}
-                  onChange={(e) => setFormLng(e.target.value)}
+                  onChange={(e) => {
+                    setFormLng(e.target.value);
+                    if (e.target.value.trim() && formLat.trim()) clearFieldError("mapPin");
+                  }}
                   placeholder="e.g. 90.384620 (auto-filled)"
                   className="w-full px-3.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 shadow-sm"
                 />

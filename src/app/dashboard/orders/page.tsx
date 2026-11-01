@@ -5,7 +5,7 @@ import { requireAuth } from "@/actions/auth";
 import { getSession } from "@/lib/auth";
 import OrderListClient from "@/components/orders/OrderListClient";
 
-export const metadata: Metadata = { title: "Orders — Business Sales" };
+export const metadata: Metadata = { title: "Orders — GeoSales OS" };
 
 export default async function OrdersPage() {
   await requireAuth();
@@ -36,10 +36,10 @@ export default async function OrdersPage() {
     <div className="space-y-6">
       <div className="pb-4 border-b border-slate-200 dark:border-slate-800">
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-          Orders & Field Invoices
+          Orders &amp; Field Invoices
         </h1>
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-          Track orders linked to businesses. Any business with ≥1 recorded order turns GREEN on the map.
+          Manage client sales orders, monitor delivery and payment statuses, and review field invoice records across all accounts.
         </p>
       </div>
 

@@ -30,6 +30,7 @@ import {
   Lock,
   Phone,
   Search,
+  X,
 } from "lucide-react";
 
 interface CurrentUser {
@@ -98,6 +99,21 @@ export default function SettingsClient({
   });
   const [memberFormError, setMemberFormError] = useState<string | null>(null);
   const [memberFormSuccess, setMemberFormSuccess] = useState<string | null>(null);
+  const [memberFieldErrors, setMemberFieldErrors] = useState<{
+    name?: string;
+    phone?: string;
+    pin?: string;
+  }>({});
+
+  const clearMemberFieldError = (field: "name" | "phone" | "pin") => {
+    setMemberFieldErrors((prev) => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  };
+
   const [isMemberPending, startMemberTransition] = useTransition();
 
   // Reset PIN Form State
@@ -190,6 +206,7 @@ export default function SettingsClient({
     });
     setMemberFormError(null);
     setMemberFormSuccess(null);
+    setMemberFieldErrors({});
     setIsAddMemberOpen(true);
   };
 
@@ -213,11 +230,43 @@ export default function SettingsClient({
     );
     setMemberFormError(null);
     setMemberFormSuccess(null);
+    setMemberFieldErrors({});
   };
 
   const handleSaveMember = () => {
     setMemberFormError(null);
     setMemberFormSuccess(null);
+
+    const errors: {
+      name?: string;
+      phone?: string;
+      pin?: string;
+    } = {};
+
+    if (!formMemberName.trim()) {
+      errors.name = "Full name is required.";
+    }
+
+    if (!formMemberPhone.trim()) {
+      errors.phone = "Mobile phone number is required.";
+    } else if (formMemberPhone.trim().replace(/[^\d+]/g, "").length < 8) {
+      errors.phone = "Valid mobile phone number is required.";
+    }
+
+    if (isAddMemberOpen) {
+      if (!formMemberPin.trim()) {
+        errors.pin = "Initial 6-digit PIN is required.";
+      } else if (!/^\d{6}$/.test(formMemberPin.trim())) {
+        errors.pin = "PIN must be exactly 6 digits.";
+      }
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setMemberFieldErrors(errors);
+      return;
+    }
+
+    setMemberFieldErrors({});
 
     if (isAddMemberOpen) {
       // Create Member
@@ -300,6 +349,11 @@ export default function SettingsClient({
     if (!resetPinMember) return;
     setResetPinError(null);
 
+    if (!resetPinValue.trim()) {
+      setResetPinError("PIN is required.");
+      return;
+    }
+
     if (!/^\d{6}$/.test(resetPinValue.trim())) {
       setResetPinError("PIN must be exactly 6 digits.");
       return;
@@ -312,6 +366,7 @@ export default function SettingsClient({
       } else if (res.success) {
         setResetPinMember(null);
         setResetPinValue("");
+        setResetPinError(null);
       }
     });
   };
@@ -490,7 +545,7 @@ export default function SettingsClient({
             <form onSubmit={handleChangePin} className="space-y-4 max-w-md">
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Current PIN (বর্তমান পিন) *
+                  Current PIN <span className="text-rose-500 font-bold ml-0.5">*</span>
                 </label>
                 <div className="relative">
                   <input
@@ -513,7 +568,7 @@ export default function SettingsClient({
 
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  New PIN (নতুন ৬ ডিজিট পিন) *
+                  New PIN <span className="text-rose-500 font-bold ml-0.5">*</span>
                 </label>
                 <div className="relative">
                   <input
@@ -536,7 +591,7 @@ export default function SettingsClient({
 
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Confirm New PIN (নতুন পিন কনফার্ম করুন) *
+                  Confirm New PIN <span className="text-rose-500 font-bold ml-0.5">*</span>
                 </label>
                 <div className="relative">
                   <input
@@ -814,9 +869,9 @@ export default function SettingsClient({
                   setIsAddMemberOpen(false);
                   setEditingMember(null);
                 }}
-                className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1 cursor-pointer"
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
               >
-                ✕
+                <X className="w-5 h-5" />
               </button>
             </div>
 
@@ -831,32 +886,56 @@ export default function SettingsClient({
               {/* Member Name */}
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Full Name *
+                  Full Name <span className="text-rose-500 font-bold ml-0.5">*</span>
                 </label>
                 <input
                   type="text"
                   value={formMemberName}
-                  onChange={(e) => setFormMemberName(e.target.value)}
+                  onChange={(e) => {
+                    setFormMemberName(e.target.value);
+                    if (e.target.value.trim()) clearMemberFieldError("name");
+                  }}
                   placeholder="e.g. Rafiq Ahmed"
-                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                  className={`w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl text-sm focus:outline-none transition-colors ${
+                    memberFieldErrors.name
+                      ? "border border-rose-500 bg-rose-50/20 dark:bg-rose-950/20 focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500"
+                      : "border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-blue-500/40"
+                  }`}
                 />
+                {memberFieldErrors.name && (
+                  <p className="text-xs text-rose-500 font-medium mt-1 animate-fade-in flex items-center gap-1">
+                    <span>{memberFieldErrors.name}</span>
+                  </p>
+                )}
               </div>
 
               {/* Mobile Number */}
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Mobile Number (Login ID) *
+                  Mobile Number (Login ID) <span className="text-rose-500 font-bold ml-0.5">*</span>
                 </label>
                 <input
                   type="tel"
                   disabled={!!editingMember}
                   value={formMemberPhone}
-                  onChange={(e) => setFormMemberPhone(e.target.value)}
+                  onChange={(e) => {
+                    setFormMemberPhone(e.target.value);
+                    if (e.target.value.trim()) clearMemberFieldError("phone");
+                  }}
                   placeholder="017XXXXXXXX"
-                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/40 disabled:opacity-60"
+                  className={`w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl text-sm font-mono focus:outline-none transition-colors disabled:opacity-60 ${
+                    memberFieldErrors.phone
+                      ? "border border-rose-500 bg-rose-50/20 dark:bg-rose-950/20 focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500"
+                      : "border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-blue-500/40"
+                  }`}
                 />
+                {memberFieldErrors.phone && (
+                  <p className="text-xs text-rose-500 font-medium mt-1 animate-fade-in flex items-center gap-1">
+                    <span>{memberFieldErrors.phone}</span>
+                  </p>
+                )}
                 {editingMember && (
-                  <p className="text-[11px] text-slate-400">Mobile number is the unique Login ID and cannot be changed.</p>
+                  <p className="text-[11px] text-slate-400 mt-1">Mobile number is the unique Login ID and cannot be changed.</p>
                 )}
               </div>
 
@@ -864,24 +943,39 @@ export default function SettingsClient({
               {isAddMemberOpen && (
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center justify-between">
-                    <span>Initial 6-Digit PIN *</span>
+                    <span>
+                      Initial 6-Digit PIN <span className="text-rose-500 font-bold ml-0.5">*</span>
+                    </span>
                     <span className="text-[11px] text-slate-400">Default: 123456</span>
                   </label>
                   <input
                     type="text"
                     maxLength={6}
                     value={formMemberPin}
-                    onChange={(e) => setFormMemberPin(e.target.value.replace(/\D/g, ""))}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, "");
+                      setFormMemberPin(val);
+                      if (val.length === 6) clearMemberFieldError("pin");
+                    }}
                     placeholder="123456"
-                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                    className={`w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl text-sm font-mono tracking-widest focus:outline-none transition-colors ${
+                      memberFieldErrors.pin
+                        ? "border border-rose-500 bg-rose-50/20 dark:bg-rose-950/20 focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500"
+                        : "border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-blue-500/40"
+                    }`}
                   />
+                  {memberFieldErrors.pin && (
+                    <p className="text-xs text-rose-500 font-medium mt-1 animate-fade-in flex items-center gap-1">
+                      <span>{memberFieldErrors.pin}</span>
+                    </p>
+                  )}
                 </div>
               )}
 
               {/* Role Selection */}
               <div className="space-y-2">
                 <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Assign System Role *
+                  Assign System Role <span className="text-rose-500 font-bold ml-0.5">*</span>
                 </label>
                 <div className="grid grid-cols-2 gap-2.5">
                   {(["ADMIN", "MODERATOR", "MARKETER", "CUSTOM"] as const).map((r) => {
@@ -974,7 +1068,7 @@ export default function SettingsClient({
               <button
                 type="button"
                 onClick={handleSaveMember}
-                disabled={isMemberPending || !formMemberName.trim() || !formMemberPhone.trim()}
+                disabled={isMemberPending}
                 className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs sm:text-sm font-semibold shadow-sm transition-all disabled:opacity-50 cursor-pointer active:scale-95"
               >
                 {isMemberPending ? "Saving Member…" : isAddMemberOpen ? "Create Member" : "Save Changes"}
@@ -996,10 +1090,14 @@ export default function SettingsClient({
                 <span>Reset PIN</span>
               </h3>
               <button
-                onClick={() => setResetPinMember(null)}
-                className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1 cursor-pointer"
+                onClick={() => {
+                  setResetPinMember(null);
+                  setResetPinError(null);
+                  setResetPinValue("");
+                }}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
               >
-                ✕
+                <X className="w-5 h-5" />
               </button>
             </div>
 
@@ -1007,32 +1105,43 @@ export default function SettingsClient({
               Set a new 6-digit access PIN for <strong>{resetPinMember.name}</strong> ({resetPinMember.phone}).
             </p>
 
-            {resetPinError && (
-              <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 text-rose-700 dark:text-rose-300 text-xs">
-                {resetPinError}
-              </div>
-            )}
-
             <form onSubmit={handleResetPin} className="space-y-3">
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  New 6-Digit PIN *
+                  New 6-Digit PIN <span className="text-rose-500 font-bold ml-0.5">*</span>
                 </label>
                 <input
                   type="text"
                   maxLength={6}
                   value={resetPinValue}
-                  onChange={(e) => setResetPinValue(e.target.value.replace(/\D/g, ""))}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/\D/g, "");
+                    setResetPinValue(val);
+                    if (resetPinError) setResetPinError(null);
+                  }}
                   placeholder="e.g. 654321"
                   autoFocus
-                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-mono tracking-widest text-center text-lg font-bold focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+                  className={`w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl text-sm font-mono tracking-widest text-center text-lg font-bold focus:outline-none transition-colors ${
+                    resetPinError
+                      ? "border border-rose-500 bg-rose-50/20 dark:bg-rose-950/20 focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500"
+                      : "border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-amber-500/40"
+                  }`}
                 />
+                {resetPinError && (
+                  <p className="text-xs text-rose-500 font-medium mt-1 animate-fade-in flex items-center justify-center gap-1">
+                    <span>{resetPinError}</span>
+                  </p>
+                )}
               </div>
 
               <div className="pt-2 flex justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setResetPinMember(null)}
+                  onClick={() => {
+                    setResetPinMember(null);
+                    setResetPinError(null);
+                    setResetPinValue("");
+                  }}
                   className="px-3.5 py-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                 >
                   Cancel
@@ -1040,7 +1149,7 @@ export default function SettingsClient({
 
                 <button
                   type="submit"
-                  disabled={isMemberPending || resetPinValue.length !== 6}
+                  disabled={isMemberPending}
                   className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-semibold shadow-sm transition-all disabled:opacity-50 cursor-pointer active:scale-95"
                 >
                   {isMemberPending ? "Resetting…" : "Confirm Reset PIN"}

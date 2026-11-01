@@ -69,6 +69,26 @@ export default function EditOrderModal({
   const [formStatus, setFormStatus] = useState<OrderStatus>(OrderStatus.PENDING);
   const [formError, setFormError] = useState<string | null>(null);
 
+  // Field-specific validation errors for inline display
+  const [fieldErrors, setFieldErrors] = useState<{
+    extId?: string;
+    date?: string;
+    status?: string;
+    directTotal?: string;
+    items?: string;
+  }>({});
+
+  const clearFieldError = (
+    field: "extId" | "date" | "status" | "directTotal" | "items"
+  ) => {
+    setFieldErrors((prev) => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  };
+
   const [formItems, setFormItems] = useState<
     Array<{
       productId: string;
@@ -88,6 +108,7 @@ export default function EditOrderModal({
       );
       setFormStatus(order.status || OrderStatus.PENDING);
       setFormError(null);
+      setFieldErrors({});
 
       const hasItems = order.items && order.items.length > 0;
       if (hasItems) {
@@ -129,6 +150,7 @@ export default function EditOrderModal({
     (order.items && order.items.length === 0);
 
   const handleProductSelect = (index: number, productId: string) => {
+    clearFieldError("items");
     const found = products.find((p) => p.id === productId);
     const updated = [...formItems];
     updated[index].productId = productId;
@@ -142,6 +164,7 @@ export default function EditOrderModal({
   };
 
   const handleQuantityChange = (index: number, val: string) => {
+    clearFieldError("items");
     const updated = [...formItems];
     const parsed = parseFloat(val);
     updated[index].quantity = isNaN(parsed) ? 0 : parsed;
@@ -149,6 +172,7 @@ export default function EditOrderModal({
   };
 
   const handlePriceChange = (index: number, val: string) => {
+    clearFieldError("items");
     const updated = [...formItems];
     const parsed = parseFloat(val);
     updated[index].unitPriceBdt = isNaN(parsed) ? 0 : parsed;
@@ -156,12 +180,14 @@ export default function EditOrderModal({
   };
 
   const handleCustomNameChange = (index: number, val: string) => {
+    clearFieldError("items");
     const updated = [...formItems];
     updated[index].sourceProductName = val;
     setFormItems(updated);
   };
 
   const addItemRow = () => {
+    clearFieldError("items");
     setFormItems((prev) => [
       ...prev,
       { productId: "", sourceProductName: "", quantity: 1, unitPriceBdt: 0 },
@@ -169,15 +195,13 @@ export default function EditOrderModal({
   };
 
   const removeItemRow = (index: number) => {
-    if (formItems.length <= 1) {
-      setFormError("At least one order line item is required in itemized mode.");
-      return;
-    }
+    if (formItems.length <= 1) return;
     setFormItems((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleSwitchToDirect = () => {
     setOrderMode("DIRECT");
+    clearFieldError("items");
     if (!formDirectTotal || formDirectTotal === "0") {
       const itemsSum = formItems.reduce(
         (sum, it) => sum + (Number(it.quantity) || 0) * (Number(it.unitPriceBdt) || 0),
@@ -193,6 +217,7 @@ export default function EditOrderModal({
 
   const handleSwitchToItemized = () => {
     setOrderMode("ITEMIZED");
+    clearFieldError("directTotal");
     if (formItems.length === 0) {
       setFormItems([
         { productId: "", sourceProductName: "", quantity: 1, unitPriceBdt: 0 },
@@ -213,9 +238,24 @@ export default function EditOrderModal({
     e.preventDefault();
     setFormError(null);
 
+    const errors: {
+      extId?: string;
+      date?: string;
+      status?: string;
+      directTotal?: string;
+      items?: string;
+    } = {};
+
     if (!formExtId.trim()) {
-      setFormError("Order Reference / Invoice ID is required.");
-      return;
+      errors.extId = "Order Reference / Invoice ID is required.";
+    }
+
+    if (!formDate.trim()) {
+      errors.date = "Order Date is required.";
+    }
+
+    if (!formStatus) {
+      errors.status = "Order Status is required.";
     }
 
     const isDirect = orderMode === "DIRECT";
@@ -223,20 +263,36 @@ export default function EditOrderModal({
     if (isDirect) {
       const parsed = parseFloat(formDirectTotal);
       if (isNaN(parsed) || parsed < 0) {
-        setFormError("অনুগ্রহ করে একটি সঠিক মোট মূল্য (Valid Total Amount) দিন।");
-        return;
+        errors.directTotal = "Please enter a valid positive total amount.";
       }
     } else {
       if (formItems.length === 0) {
-        setFormError("At least one line item is required in itemized mode.");
-        return;
-      }
-      const validItems = formItems.filter((i) => i.quantity > 0);
-      if (validItems.length === 0) {
-        setFormError("All line items must have a quantity greater than 0.");
-        return;
+        errors.items = "At least one line item is required in itemized mode.";
+      } else {
+        const hasUnselected = formItems.some(
+          (i) => !i.productId && !i.sourceProductName?.trim()
+        );
+        if (hasUnselected) {
+          errors.items = "Please select a product or enter description for all items.";
+        } else {
+          const hasInvalidQty = formItems.some(
+            (i) => isNaN(i.quantity) || i.quantity <= 0
+          );
+          if (hasInvalidQty) {
+            errors.items = "All line items must have a quantity greater than 0.";
+          }
+        }
       }
     }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      setFormError(null);
+      return;
+    }
+
+    setFieldErrors({});
+    setFormError(null);
 
     startTransition(async () => {
       const payload = {
@@ -347,7 +403,7 @@ export default function EditOrderModal({
 
                 {order.totalBdt != null && (
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">পূর্বের সংরক্ষিত মোট:</span>
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Previous Stored Total:</span>
                     <span className="text-xs font-extrabold font-mono text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-500/20 px-2 py-0.5 rounded border border-amber-300/80 dark:border-amber-500/30">
                       BDT {Number(order.totalBdt).toLocaleString("en-US", { minimumFractionDigits: 2 })}
                     </span>
@@ -356,7 +412,7 @@ export default function EditOrderModal({
               </div>
 
               <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-                📦 <strong>ইমপোর্টকৃত অর্ডার (Total Only):</strong> এই অর্ডারটি এক্সেল বা কুরিয়ার শিট থেকে শুধুমাত্র মোট টাকায় (Total Amount) ইমপোর্ট করা হয়েছে (কোনো আলাদা আইটেম বা SKU নেই)। নিচে সরাসরি মোট মূল্য (Total Price) আপডেট করতে পারেন, অথবা চাইলে <em>"পণ্য তালিকা (Itemized Products)"</em> ট্যাবে ক্লিক করে নির্দিষ্ট প্রোডাক্ট যুক্ত করতে পারেন।
+                📦 <strong>Imported Order (Total Only):</strong> This order was recorded with only a lump-sum total amount (without itemized SKU breakdown). You can adjust the lump-sum total directly below, or switch to the <em>"Itemized Line Items"</em> tab to attach specific catalog products.
               </p>
             </div>
           )}
@@ -365,38 +421,68 @@ export default function EditOrderModal({
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                Order / Invoice Ref #
+                Order / Invoice Ref # <span className="text-rose-500 font-bold ml-0.5">*</span>
               </label>
               <input
                 type="text"
                 value={formExtId}
-                onChange={(e) => setFormExtId(e.target.value)}
+                onChange={(e) => {
+                  setFormExtId(e.target.value);
+                  if (e.target.value.trim() && fieldErrors.extId) clearFieldError("extId");
+                }}
                 placeholder="e.g. ORD-1092"
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
+                className={`w-full px-3 py-2 bg-slate-50 dark:bg-slate-800/80 rounded-xl text-xs font-mono text-slate-900 dark:text-slate-100 focus:outline-none transition-colors ${
+                  fieldErrors.extId
+                    ? "border border-rose-500 bg-rose-50/20 dark:bg-rose-950/20 focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500"
+                    : "border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-blue-500"
+                }`}
               />
+              {fieldErrors.extId && (
+                <p className="text-xs text-rose-500 font-medium mt-1 animate-fade-in flex items-center gap-1">
+                  <span>{fieldErrors.extId}</span>
+                </p>
+              )}
             </div>
 
             <div>
               <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                Order Date
+                Order Date <span className="text-rose-500 font-bold ml-0.5">*</span>
               </label>
               <input
                 type="date"
                 value={formDate}
-                onChange={(e) => setFormDate(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                onChange={(e) => {
+                  setFormDate(e.target.value);
+                  if (e.target.value.trim() && fieldErrors.date) clearFieldError("date");
+                }}
+                className={`w-full px-3 py-2 bg-slate-50 dark:bg-slate-800/80 rounded-xl text-xs text-slate-900 dark:text-slate-100 focus:outline-none transition-colors ${
+                  fieldErrors.date
+                    ? "border border-rose-500 bg-rose-50/20 dark:bg-rose-950/20 focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500"
+                    : "border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-blue-500"
+                }`}
               />
+              {fieldErrors.date && (
+                <p className="text-xs text-rose-500 font-medium mt-1 animate-fade-in flex items-center gap-1">
+                  <span>{fieldErrors.date}</span>
+                </p>
+              )}
             </div>
 
             <div>
               <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                Order Lifecycle Status
+                Order Lifecycle Status <span className="text-rose-500 font-bold ml-0.5">*</span>
               </label>
               <select
                 value={formStatus}
-                onChange={(e) => setFormStatus(e.target.value as OrderStatus)}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                onChange={(e) => {
+                  setFormStatus(e.target.value as OrderStatus);
+                  if (e.target.value && fieldErrors.status) clearFieldError("status");
+                }}
+                className={`w-full px-3 py-2 bg-slate-50 dark:bg-slate-800/80 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none transition-colors ${
+                  fieldErrors.status
+                    ? "border border-rose-500 bg-rose-50/20 dark:bg-rose-950/20 focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500"
+                    : "border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-blue-500"
+                }`}
               >
                 <option value={OrderStatus.PENDING}>🟡 Pending Confirmation</option>
                 <option value={OrderStatus.COMPLETED}>🟢 Completed / Delivered</option>
@@ -404,6 +490,11 @@ export default function EditOrderModal({
                 <option value={OrderStatus.RETURNED}>⚪ Returned</option>
                 <option value={OrderStatus.PARTIAL}>🟠 Partial Delivery</option>
               </select>
+              {fieldErrors.status && (
+                <p className="text-xs text-rose-500 font-medium mt-1 animate-fade-in flex items-center gap-1">
+                  <span>{fieldErrors.status}</span>
+                </p>
+              )}
             </div>
           </div>
 
@@ -419,7 +510,7 @@ export default function EditOrderModal({
               }`}
             >
               <DollarSign className="w-3.5 h-3.5" />
-              <span>Total Only (Direct / একমুঠো মূল্য)</span>
+              <span>Total Only (Direct Total)</span>
             </button>
 
             <button
@@ -446,11 +537,11 @@ export default function EditOrderModal({
                       Total Only (Direct)
                     </span>
                     <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-                      সরাসরি মোট অর্ডার মূল্য (Direct Lump-sum)
+                      Direct Lump-sum Order Total
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    নির্দিষ্ট পণ্য তালিকা ছাড়া সরাসরি মোট টাকার অংক বসিয়ে অর্ডার আপডেট করুন।
+                    Update order amount directly as a lump-sum without itemized products.
                   </p>
                 </div>
 
@@ -460,7 +551,7 @@ export default function EditOrderModal({
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-slate-700 text-xs font-semibold border border-slate-200 dark:border-slate-700 shadow-sm transition-all cursor-pointer shrink-0 self-start sm:self-auto"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>আইটেম তালিকা যোগ করুন</span>
+                  <span>Add Itemized List</span>
                 </button>
               </div>
 
@@ -468,11 +559,11 @@ export default function EditOrderModal({
               <div className="space-y-2 max-w-md">
                 <div className="flex flex-wrap items-center justify-between gap-1">
                   <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                    মোট অর্ডারের মূল্য (Direct Total BDT):
+                    Direct Total Amount (BDT): <span className="text-rose-500 font-bold ml-0.5">*</span>
                   </label>
                   {order.totalBdt != null && (
                     <span className="text-[11px] font-normal text-slate-500 dark:text-slate-400 font-mono">
-                      আগের মোট: <strong className="text-slate-800 dark:text-slate-200 font-semibold">BDT {Number(order.totalBdt).toLocaleString("en-US", { minimumFractionDigits: 2 })}</strong>
+                      Previous Stored Total: <strong className="text-slate-800 dark:text-slate-200 font-semibold">BDT {Number(order.totalBdt).toLocaleString("en-US", { minimumFractionDigits: 2 })}</strong>
                     </span>
                   )}
                 </div>
@@ -485,19 +576,33 @@ export default function EditOrderModal({
                     min="0"
                     step="any"
                     value={formDirectTotal}
-                    onChange={(e) => setFormDirectTotal(e.target.value)}
+                    onChange={(e) => {
+                      setFormDirectTotal(e.target.value);
+                      if (e.target.value.trim() && fieldErrors.directTotal) clearFieldError("directTotal");
+                    }}
                     placeholder={order.totalBdt != null ? String(order.totalBdt) : "0.00"}
-                    className="w-full pl-14 pr-4 py-2.5 bg-white dark:bg-slate-900 border-2 border-amber-300 dark:border-amber-600/50 rounded-xl text-base font-extrabold font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
-                    required
+                    className={`w-full pl-14 pr-4 py-2.5 bg-white dark:bg-slate-900 border-2 rounded-xl text-base font-extrabold font-mono text-slate-900 dark:text-slate-100 focus:outline-none transition-colors shadow-sm ${
+                      fieldErrors.directTotal
+                        ? "border-rose-500 bg-rose-50/20 dark:bg-rose-950/20 focus:ring-2 focus:ring-rose-500/30"
+                        : "border-amber-300 dark:border-amber-600/50 focus:ring-2 focus:ring-blue-500"
+                    }`}
                   />
                 </div>
+                {fieldErrors.directTotal && (
+                  <p className="text-xs text-rose-500 font-medium mt-1 animate-fade-in flex items-center gap-1">
+                    <span>{fieldErrors.directTotal}</span>
+                  </p>
+                )}
                 {order.totalBdt != null && formDirectTotal !== String(order.totalBdt) && (
                   <button
                     type="button"
-                    onClick={() => setFormDirectTotal(String(order.totalBdt))}
+                    onClick={() => {
+                      setFormDirectTotal(String(order.totalBdt));
+                      clearFieldError("directTotal");
+                    }}
                     className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-semibold cursor-pointer pt-0.5 block"
                   >
-                    ↺ আগের মোট মূল্যে ({Number(order.totalBdt).toLocaleString("en-US", { minimumFractionDigits: 2 })}) রিসেট করুন
+                    ↺ Reset to previous total ({Number(order.totalBdt).toLocaleString("en-US", { minimumFractionDigits: 2 })})
                   </button>
                 )}
               </div>
@@ -510,9 +615,10 @@ export default function EditOrderModal({
                   <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
                     <Package className="w-3.5 h-3.5 text-blue-500" />
                     <span>Order Line Items ({formItems.length})</span>
+                    <span className="text-rose-500 font-bold ml-0.5">*</span>
                   </span>
                   <p className="text-[11px] text-slate-400">
-                    নির্দিষ্ট পণ্য নির্বাচন করে পরিমাণ ও রেট নির্ধারণ করুন।
+                    Select catalog products and specify quantities and unit rates.
                   </p>
                 </div>
 
@@ -522,7 +628,7 @@ export default function EditOrderModal({
                     onClick={() => setOrderMode("DIRECT")}
                     className="text-xs text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 underline font-medium cursor-pointer"
                   >
-                    Direct Total-এ ফিরে যান
+                    Switch back to Direct Total
                   </button>
 
                   <button
@@ -535,6 +641,12 @@ export default function EditOrderModal({
                   </button>
                 </div>
               </div>
+
+              {fieldErrors.items && (
+                <p className="text-xs text-rose-500 font-medium animate-fade-in flex items-center gap-1">
+                  <span>{fieldErrors.items}</span>
+                </p>
+              )}
 
               <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
                 {formItems.map((item, idx) => {

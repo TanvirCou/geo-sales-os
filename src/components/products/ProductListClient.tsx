@@ -14,7 +14,7 @@ import {
 } from "@/actions/products";
 import { Pagination } from "@/components/ui/Pagination";
 import { useToast } from "@/components/ui/Toast";
-import { Trash2, AlertTriangle, Archive as ArchiveIcon, MoreVertical, Edit, RotateCcw } from "lucide-react";
+import { Trash2, AlertTriangle, Archive as ArchiveIcon, MoreVertical, Edit, RotateCcw, X } from "lucide-react";
 
 interface ProductItem {
   id: string;
@@ -57,6 +57,7 @@ export default function ProductListClient({
   const [formSku, setFormSku] = useState("");
   const [formUnit, setFormUnit] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<{ name?: string }>({});
 
   // Confirmation Modals State
   const [deletingProduct, setDeletingProduct] = useState<ProductItem | null>(null);
@@ -132,6 +133,7 @@ export default function ProductListClient({
     setFormSku("");
     setFormUnit("");
     setFormError(null);
+    setFieldErrors({});
     setIsModalOpen(true);
   };
 
@@ -141,14 +143,19 @@ export default function ProductListClient({
     setFormSku(p.sku || "");
     setFormUnit(p.unit || "");
     setFormError(null);
+    setFieldErrors({});
     setIsModalOpen(true);
   };
 
   const handleSave = () => {
     if (!formName.trim()) {
-      setFormError("Product name is required.");
+      setFieldErrors({ name: "Product name is required." });
+      setFormError(null);
       return;
     }
+
+    setFieldErrors({});
+    setFormError(null);
 
     const payload: ProductInput = {
       name: formName.trim(),
@@ -376,9 +383,19 @@ export default function ProductListClient({
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm">
           <div className="w-full max-w-md max-h-[90vh] overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 sm:p-6 shadow-2xl space-y-4 text-slate-900 dark:text-slate-100">
-            <h3 className="text-lg font-bold">
-              {editingProduct ? "Edit Product" : "Add New Product"}
-            </h3>
+            <div className="flex items-center justify-between pb-1 border-b border-slate-100 dark:border-slate-800">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+                {editingProduct ? "Edit Product" : "Add New Product"}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                title="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
             {formError && (
               <div className="p-3 rounded-lg bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 text-rose-700 dark:text-rose-300 text-sm">
@@ -388,19 +405,38 @@ export default function ProductListClient({
 
             <div className="space-y-4">
               <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700 dark:text-slate-300">Product Name *</label>
+                <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                  Product Name <span className="text-rose-500 font-bold ml-0.5">*</span>
+                </label>
                 <input
                   type="text"
                   value={formName}
-                  onChange={(e) => setFormName(e.target.value)}
+                  onChange={(e) => {
+                    setFormName(e.target.value);
+                    if (e.target.value.trim() && fieldErrors.name) {
+                      setFieldErrors({});
+                    }
+                  }}
                   placeholder="e.g. Menu Book"
-                  className="w-full px-3.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 shadow-sm"
+                  className={`w-full px-3.5 py-2 bg-white dark:bg-slate-800 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none shadow-sm transition-colors ${
+                    fieldErrors.name
+                      ? "border border-rose-500 bg-rose-50/20 dark:bg-rose-950/20 focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500"
+                      : "border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
+                  }`}
                 />
+                {fieldErrors.name && (
+                  <p className="text-xs text-rose-500 font-medium mt-1 animate-fade-in flex items-center gap-1">
+                    <span>{fieldErrors.name}</span>
+                  </p>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700 dark:text-slate-300">SKU (optional)</label>
+                  <label className="text-xs font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <span>SKU</span>
+                    <span className="text-slate-400 font-normal text-[11px]">(Optional)</span>
+                  </label>
                   <input
                     type="text"
                     value={formSku}
@@ -411,7 +447,10 @@ export default function ProductListClient({
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700 dark:text-slate-300">Unit (optional)</label>
+                  <label className="text-xs font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <span>Unit</span>
+                    <span className="text-slate-400 font-normal text-[11px]">(Optional)</span>
+                  </label>
                   <input
                     type="text"
                     value={formUnit}
