@@ -4,6 +4,8 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { cancelOrder, deleteOrder } from "@/actions/orders";
+import { hasPermission } from "@/lib/permissions";
+import EditOrderModal, { ProductOption } from "./EditOrderModal";
 import {
   Building2,
   Calendar,
@@ -15,6 +17,7 @@ import {
   CheckCircle2,
   Clock,
   ExternalLink,
+  FileEdit,
 } from "lucide-react";
 
 import { OrderStatus } from "@prisma/client";
@@ -53,8 +56,20 @@ interface OrderDetailData {
   totalBdt: number | null;
 }
 
-export default function OrderDetailClient({ order }: { order: OrderDetailData }) {
+export default function OrderDetailClient({
+  order,
+  products = [],
+  userRole = "MARKETER",
+  userPermissions,
+}: {
+  order: OrderDetailData;
+  products?: ProductOption[];
+  userRole?: string;
+  userPermissions?: any;
+}) {
   const router = useRouter();
+  const canUpdateOrder = hasPermission({ role: userRole, permissions: userPermissions }, "canUpdateOrder");
+  const canDeleteOrder = hasPermission({ role: userRole, permissions: userPermissions }, "canDeleteOrder");
   const [isPending, startTransition] = useTransition();
   const [feedback, setFeedback] = useState<{ text: string; type: "success" | "error" } | null>(null);
 
@@ -68,6 +83,7 @@ export default function OrderDetailClient({ order }: { order: OrderDetailData })
     order.business.address || `${order.business.district || "Dhaka"}, Bangladesh`;
 
   // Confirmation Modals
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
@@ -202,25 +218,39 @@ export default function OrderDetailClient({ order }: { order: OrderDetailData })
             </div>
 
             <div className="flex items-center gap-2">
-              {/* Cancel Button: ONLY shown when order is PENDING (Delivered orders cannot be cancelled) */}
-              {isPendingOrder && (
+              {/* Edit Button: Shown if user has canUpdateOrder */}
+              {canUpdateOrder && (
+                <button
+                  type="button"
+                  onClick={() => setIsEditModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-500/30 rounded-xl text-xs font-semibold shadow-sm transition-all cursor-pointer"
+                >
+                  <FileEdit className="w-3.5 h-3.5" />
+                  <span>Edit Order</span>
+                </button>
+              )}
+
+              {/* Cancel Button: ONLY shown when order is PENDING and user has canUpdateOrder */}
+              {canUpdateOrder && isPendingOrder && (
                 <button
                   type="button"
                   onClick={() => setIsCancelModalOpen(true)}
-                  className="px-3.5 py-1.5 bg-amber-50 dark:bg-amber-500/10 hover:bg-amber-100 dark:hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/30 rounded-xl text-xs font-semibold shadow-sm transition-all"
+                  className="px-3.5 py-1.5 bg-amber-50 dark:bg-amber-500/10 hover:bg-amber-100 dark:hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/30 rounded-xl text-xs font-semibold shadow-sm transition-all cursor-pointer"
                 >
                   Cancel Order
                 </button>
               )}
 
-              <button
-                type="button"
-                onClick={() => setIsDeleteModalOpen(true)}
-                className="inline-flex items-center gap-1 px-3.5 py-1.5 bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30 rounded-xl text-xs font-semibold shadow-sm transition-all"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Delete</span>
-              </button>
+              {canDeleteOrder && (
+                <button
+                  type="button"
+                  onClick={() => setIsDeleteModalOpen(true)}
+                  className="inline-flex items-center gap-1 px-3.5 py-1.5 bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30 rounded-xl text-xs font-semibold shadow-sm transition-all cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -475,6 +505,28 @@ export default function OrderDetailClient({ order }: { order: OrderDetailData })
           </div>
         </div>
       )}
+
+      {/* ── Edit Order Modal ────────────────────────────────────── */}
+      <EditOrderModal
+        isOpen={isEditModalOpen}
+        onClose={() => setIsEditModalOpen(false)}
+        order={{
+          id: order.id,
+          externalOrderId: order.externalOrderId,
+          businessName: order.business.name,
+          businessId: order.businessId,
+          orderedAt: order.orderedAt,
+          status: order.status,
+          source: order.source,
+          totalBdt: order.totalBdt,
+          items: order.items,
+        }}
+        products={products}
+        onSuccess={() => {
+          setFeedback({ text: "Order updated successfully.", type: "success" });
+          router.refresh();
+        }}
+      />
     </div>
   );
 }

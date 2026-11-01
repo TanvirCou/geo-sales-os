@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { getMapBusinesses, fetchLiveRestaurantProspects } from "@/actions/map";
 import { getBusinessFilterOptions } from "@/actions/businesses";
+import { getSession } from "@/lib/auth";
+import { hasPermission } from "@/lib/permissions";
 import GoogleMapClient from "@/components/maps/GoogleMapClient";
 
 export const metadata: Metadata = { title: "Territory Sales Map — Google Maps" };
@@ -12,12 +14,14 @@ export default async function GoogleMapPage({
 }) {
   const { focus } = await searchParams;
 
-  const [mapData, filterOptions, initialProspectsData] = await Promise.all([
+  const [mapData, filterOptions, initialProspectsData, session] = await Promise.all([
     getMapBusinesses(),
     getBusinessFilterOptions(),
     fetchLiveRestaurantProspects({ lat: 23.7405, lon: 90.3846, radiusMeters: 4000 }).catch(() => ({ prospects: [] })),
+    getSession(),
   ]);
 
+  const canAddBusiness = hasPermission(session?.user, "canAddBusiness");
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "";
   const mapId = process.env.NEXT_PUBLIC_GOOGLE_MAP_ID || "DEMO_MAP_ID";
 
@@ -46,6 +50,7 @@ export default async function GoogleMapPage({
         apiKey={apiKey}
         mapId={mapId}
         focusId={focus}
+        canAddBusiness={canAddBusiness}
       />
     </div>
   );

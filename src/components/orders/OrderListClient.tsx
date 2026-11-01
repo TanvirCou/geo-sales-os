@@ -3,6 +3,7 @@
 import { useState, useTransition, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
+import { hasPermission } from "@/lib/permissions";
 import {
   createOrder,
   cancelOrder,
@@ -15,10 +16,12 @@ import { OrderStatus } from "@prisma/client";
 import { Pagination } from "@/components/ui/Pagination";
 import { useToast } from "@/components/ui/Toast";
 import RecordOrderModal from "@/components/orders/RecordOrderModal";
-import { Trash2, AlertTriangle, MoreVertical, Eye, Ban } from "lucide-react";
+import EditOrderModal, { EditableOrder } from "@/components/orders/EditOrderModal";
+import { Trash2, AlertTriangle, MoreVertical, Eye, Ban, FileEdit } from "lucide-react";
 
 interface OrderItemDisplay {
   id: string;
+  productId?: string | null;
   name: string;
   quantity: number;
   unitPriceBdt: number;
@@ -55,13 +58,21 @@ export default function OrderListClient({
   initialOrders,
   businesses,
   products,
+  userRole = "ADMIN",
+  userPermissions,
 }: {
   initialOrders: OrderDisplay[];
   businesses: BusinessOption[];
   products: ProductOption[];
+  userRole?: string;
+  userPermissions?: any;
 }) {
   const router = useRouter();
   const toast = useToast();
+  const canRecordOrder = hasPermission({ role: userRole, permissions: userPermissions }, "canRecordOrder");
+  const canUpdateOrder = hasPermission({ role: userRole, permissions: userPermissions }, "canUpdateOrder");
+  const canDeleteOrder = hasPermission({ role: userRole, permissions: userPermissions }, "canDeleteOrder");
+  const canImport = hasPermission({ role: userRole, permissions: userPermissions }, "canImport");
   const [orders, setOrders] = useState<OrderDisplay[]>(initialOrders);
 
   useEffect(() => {
@@ -80,6 +91,9 @@ export default function OrderListClient({
     setIsModalOpen(true);
   };
 
+
+  // Edit Order Modal State
+  const [editingOrder, setEditingOrder] = useState<EditableOrder | null>(null);
 
   // Confirmation Modals State
   const [cancellingOrder, setCancellingOrder] = useState<{
@@ -245,19 +259,23 @@ export default function OrderListClient({
             <option value="CANCELLED">Cancelled</option>
           </select>
 
-          <Link
-            href="/dashboard/imports"
-            className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-semibold shadow-sm transition-all flex items-center gap-1.5 active:scale-95"
-          >
-            <span>📥</span> Import Excel
-          </Link>
+          {canImport && (
+            <Link
+              href="/dashboard/imports"
+              className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-semibold shadow-sm transition-all flex items-center gap-1.5 active:scale-95"
+            >
+              <span>📥</span> Import Excel
+            </Link>
+          )}
 
-          <button
-            onClick={openAddModal}
-            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-semibold shadow-sm transition-all flex items-center gap-1.5 active:scale-95"
-          >
-            <span>+</span> Record New Order
-          </button>
+          {canRecordOrder && (
+            <button
+              onClick={openAddModal}
+              className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-semibold shadow-sm transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer"
+            >
+              <span>+</span> Record New Order
+            </button>
+          )}
         </div>
 
         <div className="pt-3 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
@@ -384,6 +402,17 @@ export default function OrderListClient({
         products={products}
         onSuccess={() => {
           toast.success("Order recorded. Business map marker updated.");
+        }}
+      />
+
+      {/* Edit Order Modal */}
+      <EditOrderModal
+        isOpen={!!editingOrder}
+        onClose={() => setEditingOrder(null)}
+        order={editingOrder}
+        products={products}
+        onSuccess={() => {
+          toast.success("Order updated successfully.");
         }}
       />
 
@@ -521,45 +550,82 @@ export default function OrderListClient({
             </Link>
           </div>
 
-          <div className="py-1">
-            {openActionOrder.status === "PENDING" && (
-              <button
-                type="button"
-                onClick={() => {
-                  const target = openActionOrder;
-                  setOpenActionOrder(null);
-                  setMenuCoords(null);
-                  setCancellingOrder({
-                    id: target.id,
-                    extId: target.externalOrderId,
-                    businessName: target.businessName,
-                  });
-                }}
-                className="w-full px-3 py-2 text-left text-xs font-semibold text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-500/10 flex items-center gap-2 transition-colors cursor-pointer"
-              >
-                <Ban className="w-3.5 h-3.5 text-amber-500" />
-                <span>Cancel Order</span>
-              </button>
-            )}
+          {(canUpdateOrder || canDeleteOrder) && (
+            <div className="py-1">
+              {canUpdateOrder && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = openActionOrder;
+                    setOpenActionOrder(null);
+                    setMenuCoords(null);
+                    setEditingOrder({
+                      id: target.id,
+                      externalOrderId: target.externalOrderId,
+                      businessName: target.businessName,
+                      businessId: target.businessId,
+                      orderedAt: target.orderedAt,
+                      status: target.status,
+                      source: target.source,
+                      totalBdt: target.totalBdt,
+                      items: target.items.map((i) => ({
+                        id: i.id,
+                        productId: i.productId || null,
+                        name: i.name,
+                        sourceProductName: i.name,
+                        quantity: i.quantity,
+                        unitPriceBdt: i.unitPriceBdt,
+                      })),
+                    });
+                  }}
+                  className="w-full px-3 py-2 text-left text-xs font-semibold text-blue-700 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10 flex items-center gap-2 transition-colors cursor-pointer"
+                >
+                  <FileEdit className="w-3.5 h-3.5 text-blue-500" />
+                  <span>Edit Order</span>
+                </button>
+              )}
 
-            <button
-              type="button"
-              onClick={() => {
-                const target = openActionOrder;
-                setOpenActionOrder(null);
-                setMenuCoords(null);
-                setDeletingOrder({
-                  id: target.id,
-                  extId: target.externalOrderId,
-                  businessName: target.businessName,
-                });
-              }}
-              className="w-full px-3 py-2 text-left text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 flex items-center gap-2 transition-colors cursor-pointer"
-            >
-              <Trash2 className="w-3.5 h-3.5 text-rose-500" />
-              <span>Delete Order</span>
-            </button>
-          </div>
+              {canUpdateOrder && openActionOrder.status === "PENDING" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = openActionOrder;
+                    setOpenActionOrder(null);
+                    setMenuCoords(null);
+                    setCancellingOrder({
+                      id: target.id,
+                      extId: target.externalOrderId,
+                      businessName: target.businessName,
+                    });
+                  }}
+                  className="w-full px-3 py-2 text-left text-xs font-semibold text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-500/10 flex items-center gap-2 transition-colors cursor-pointer"
+                >
+                  <Ban className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Cancel Order</span>
+                </button>
+              )}
+
+              {canDeleteOrder && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = openActionOrder;
+                    setOpenActionOrder(null);
+                    setMenuCoords(null);
+                    setDeletingOrder({
+                      id: target.id,
+                      extId: target.externalOrderId,
+                      businessName: target.businessName,
+                    });
+                  }}
+                  className="w-full px-3 py-2 text-left text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 flex items-center gap-2 transition-colors cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                  <span>Delete Order</span>
+                </button>
+              )}
+            </div>
+          )}
         </div>,
         document.body
       )}

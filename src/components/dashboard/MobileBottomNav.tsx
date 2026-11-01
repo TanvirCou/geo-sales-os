@@ -4,12 +4,22 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { logoutAction } from "@/actions/auth";
+import { hasPermission } from "@/lib/permissions";
 
-export function MobileBottomNav({ adminName = "Admin User" }: { adminName?: string }) {
+export function MobileBottomNav({
+  adminName = "Admin User",
+  role = "ADMIN",
+  permissions,
+}: {
+  adminName?: string;
+  role?: string;
+  permissions?: any;
+}) {
   const pathname = usePathname();
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [logoutPending, setLogoutPending] = useState(false);
   const avatarLetter = (adminName || "A").trim().charAt(0).toUpperCase() || "A";
+  const canImport = hasPermission({ role, permissions }, "canImport");
 
   const isActive = (href: string) => {
     if (href === "/dashboard") return pathname === "/dashboard";
@@ -232,16 +242,24 @@ export function MobileBottomNav({ adminName = "Admin User" }: { adminName?: stri
               <Link
                 href="/dashboard/imports"
                 onClick={closeMore}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+                className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
                   isActive("/dashboard/imports")
                     ? "bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 font-semibold"
                     : "text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
                 }`}
               >
-                <span className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                  📥
-                </span>
-                <span>Batch Imports (Excel / Steadfast)</span>
+                <div className="flex items-center gap-3">
+                  <span className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                    📥
+                  </span>
+                  <span>Batch Imports (Excel / Steadfast)</span>
+                </div>
+                {!canImport && (
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 flex items-center gap-1">
+                    <span>🔒</span>
+                    <span>Restricted</span>
+                  </span>
+                )}
               </Link>
 
               <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 px-3 py-1 pt-2">

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { getOrders } from "@/actions/orders";
 import { db } from "@/lib/db";
 import { requireAuth } from "@/actions/auth";
+import { getSession } from "@/lib/auth";
 import OrderListClient from "@/components/orders/OrderListClient";
 
 export const metadata: Metadata = { title: "Orders — Business Sales" };
@@ -9,7 +10,7 @@ export const metadata: Metadata = { title: "Orders — Business Sales" };
 export default async function OrdersPage() {
   await requireAuth();
 
-  const [orders, businesses, products] = await Promise.all([
+  const [orders, businesses, products, session] = await Promise.all([
     getOrders(),
     db.business.findMany({
       where: { isActive: true },
@@ -21,6 +22,7 @@ export default async function OrdersPage() {
       select: { id: true, name: true, priceBdt: true, unit: true },
       orderBy: { name: "asc" },
     }),
+    getSession(),
   ]);
 
   const productOptions = products.map((p) => ({
@@ -45,6 +47,8 @@ export default async function OrdersPage() {
         initialOrders={orders}
         businesses={businesses}
         products={productOptions}
+        userRole={session?.user.role}
+        userPermissions={session?.user.permissions}
       />
     </div>
   );

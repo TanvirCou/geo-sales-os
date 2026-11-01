@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { getMapBusinesses, fetchLiveRestaurantProspects } from "@/actions/map";
 import { getBusinessFilterOptions } from "@/actions/businesses";
+import { getSession } from "@/lib/auth";
+import { hasPermission } from "@/lib/permissions";
 import GeoapifyMapClient from "@/components/maps/GeoapifyMapClient";
 
 export const metadata: Metadata = { title: "Territory Sales Map — MapLibre" };
@@ -12,12 +14,14 @@ export default async function GeoapifyMapPage({
 }) {
   const { focus } = await searchParams;
 
-  const [mapData, filterOptions, initialProspectsData] = await Promise.all([
+  const [mapData, filterOptions, initialProspectsData, session] = await Promise.all([
     getMapBusinesses(),
     getBusinessFilterOptions(),
     fetchLiveRestaurantProspects({ lat: 23.7405, lon: 90.3846, radiusMeters: 4000 }).catch(() => ({ prospects: [] })),
+    getSession(),
   ]);
 
+  const canAddBusiness = hasPermission(session?.user, "canAddBusiness");
   const apiKey = process.env.NEXT_PUBLIC_GEOAPIFY_API_KEY || "";
 
   return (
@@ -44,6 +48,7 @@ export default async function GeoapifyMapPage({
         areas={filterOptions.areas}
         apiKey={apiKey}
         focusId={focus}
+        canAddBusiness={canAddBusiness}
       />
     </div>
   );

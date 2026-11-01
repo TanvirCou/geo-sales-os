@@ -3,6 +3,7 @@
 import { useState, useTransition, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
+import { hasPermission } from "@/lib/permissions";
 import { Pagination } from "@/components/ui/Pagination";
 import { useToast } from "@/components/ui/Toast";
 import {
@@ -58,11 +59,18 @@ interface FilterOptions {
 export default function BusinessListClient({
   initialBusinesses,
   filterOptions,
+  userRole = "ADMIN",
+  userPermissions,
 }: {
   initialBusinesses: BusinessItem[];
   filterOptions: FilterOptions;
+  userRole?: string;
+  userPermissions?: any;
 }) {
   const router = useRouter();
+  const canAddBusiness = hasPermission({ role: userRole, permissions: userPermissions }, "canAddBusiness");
+  const canEditBusiness = hasPermission({ role: userRole, permissions: userPermissions }, "canEditBusiness");
+  const canDeleteBusiness = hasPermission({ role: userRole, permissions: userPermissions }, "canDeleteBusiness");
   const [businesses, setBusinesses] = useState<BusinessItem[]>(initialBusinesses);
 
   useEffect(() => {
@@ -558,13 +566,15 @@ export default function BusinessListClient({
             {showArchived ? "Showing Archived" : "Show Archived"}
           </button>
 
-          {/* Add Business Button */}
-          <button
-            onClick={openAddModal}
-            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-semibold shadow-md shadow-blue-600/30 transition-all flex items-center gap-1.5 active:scale-95"
-          >
-            <span>+</span> Add Business
-          </button>
+          {/* Add Business Button (Protected) */}
+          {canAddBusiness && (
+            <button
+              onClick={openAddModal}
+              className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-semibold shadow-md shadow-blue-600/30 transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer"
+            >
+              <span>+</span> Add Business
+            </button>
+          )}
         </div>
 
         {/* Filter Summary & Count */}
@@ -1091,19 +1101,21 @@ export default function BusinessListClient({
               <span>View Details</span>
             </Link>
 
-            <button
-              type="button"
-              onClick={() => {
-                const target = openActionBusiness;
-                setOpenActionBusiness(null);
-                setMenuCoords(null);
-                openEditModal(target);
-              }}
-              className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/70 flex items-center gap-2 transition-colors cursor-pointer"
-            >
-              <Edit className="w-3.5 h-3.5 text-blue-500" />
-              <span>Edit Business</span>
-            </button>
+            {canEditBusiness && (
+              <button
+                type="button"
+                onClick={() => {
+                  const target = openActionBusiness;
+                  setOpenActionBusiness(null);
+                  setMenuCoords(null);
+                  openEditModal(target);
+                }}
+                className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/70 flex items-center gap-2 transition-colors cursor-pointer"
+              >
+                <Edit className="w-3.5 h-3.5 text-blue-500" />
+                <span>Edit Business</span>
+              </button>
+            )}
           </div>
 
           {openActionBusiness.latitude != null && openActionBusiness.longitude != null && (
@@ -1138,51 +1150,57 @@ export default function BusinessListClient({
             </div>
           )}
 
-          <div className="py-1">
-            {openActionBusiness.isActive ? (
-              <button
-                type="button"
-                onClick={() => {
-                  const target = openActionBusiness;
-                  setOpenActionBusiness(null);
-                  setMenuCoords(null);
-                  setArchivingBusiness(target);
-                }}
-                className="w-full px-3 py-2 text-left text-xs font-semibold text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-500/10 flex items-center gap-2 transition-colors cursor-pointer"
-              >
-                <ArchiveIcon className="w-3.5 h-3.5 text-amber-500" />
-                <span>Archive</span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  const target = openActionBusiness;
-                  setOpenActionBusiness(null);
-                  setMenuCoords(null);
-                  handleRestore(target);
-                }}
-                className="w-full px-3 py-2 text-left text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 flex items-center gap-2 transition-colors cursor-pointer"
-              >
-                <RotateCcw className="w-3.5 h-3.5 text-emerald-500" />
-                <span>Restore</span>
-              </button>
-            )}
+          {(canEditBusiness || canDeleteBusiness) && (
+            <div className="py-1">
+              {canEditBusiness && (
+                openActionBusiness.isActive ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = openActionBusiness;
+                      setOpenActionBusiness(null);
+                      setMenuCoords(null);
+                      setArchivingBusiness(target);
+                    }}
+                    className="w-full px-3 py-2 text-left text-xs font-semibold text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-500/10 flex items-center gap-2 transition-colors cursor-pointer"
+                  >
+                    <ArchiveIcon className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Archive</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = openActionBusiness;
+                      setOpenActionBusiness(null);
+                      setMenuCoords(null);
+                      handleRestore(target);
+                    }}
+                    className="w-full px-3 py-2 text-left text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 flex items-center gap-2 transition-colors cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-emerald-500" />
+                    <span>Restore</span>
+                  </button>
+                )
+              )}
 
-            <button
-              type="button"
-              onClick={() => {
-                const target = openActionBusiness;
-                setOpenActionBusiness(null);
-                setMenuCoords(null);
-                setDeletingBusiness(target);
-              }}
-              className="w-full px-3 py-2 text-left text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 flex items-center gap-2 transition-colors cursor-pointer"
-            >
-              <Trash2 className="w-3.5 h-3.5 text-rose-500" />
-              <span>Delete</span>
-            </button>
-          </div>
+              {canDeleteBusiness && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = openActionBusiness;
+                    setOpenActionBusiness(null);
+                    setMenuCoords(null);
+                    setDeletingBusiness(target);
+                  }}
+                  className="w-full px-3 py-2 text-left text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 flex items-center gap-2 transition-colors cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                  <span>Delete</span>
+                </button>
+              )}
+            </div>
+          )}
         </div>,
         document.body
       )}

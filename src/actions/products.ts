@@ -2,6 +2,7 @@
 
 import { db } from "@/lib/db";
 import { requireAuth } from "./auth";
+import { hasPermission } from "@/lib/permissions";
 import { revalidatePath } from "next/cache";
 
 export interface ProductInput {
@@ -50,7 +51,10 @@ export async function getProducts(params?: { q?: string; isActive?: boolean }) {
 }
 
 export async function createProduct(data: ProductInput) {
-  await requireAuth();
+  const session = await requireAuth();
+  if (!hasPermission(session.user, "canManageProducts")) {
+    return { error: "Unauthorized: You do not have permission to manage products." };
+  }
 
   if (!data.name || data.name.trim().length === 0) {
     return { error: "Product name is required." };
@@ -79,7 +83,10 @@ export async function createProduct(data: ProductInput) {
 }
 
 export async function updateProduct(id: string, data: ProductInput) {
-  await requireAuth();
+  const session = await requireAuth();
+  if (!hasPermission(session.user, "canManageProducts")) {
+    return { error: "Unauthorized: You do not have permission to manage products." };
+  }
 
   if (!data.name || data.name.trim().length === 0) {
     return { error: "Product name is required." };
@@ -112,7 +119,10 @@ export async function updateProduct(id: string, data: ProductInput) {
  * Otherwise prompt to archive (preserving historical line items).
  */
 export async function deleteProduct(id: string) {
-  await requireAuth();
+  const session = await requireAuth();
+  if (!hasPermission(session.user, "canDeleteProduct")) {
+    return { error: "Unauthorized: Only administrators have permission to delete products." };
+  }
 
   const product = await db.product.findUnique({
     where: { id },
@@ -140,7 +150,10 @@ export async function deleteProduct(id: string) {
 }
 
 export async function archiveProduct(id: string) {
-  await requireAuth();
+  const session = await requireAuth();
+  if (!hasPermission(session.user, "canManageProducts")) {
+    return { error: "Unauthorized: You do not have permission to archive products." };
+  }
 
   try {
     await db.product.update({
@@ -155,7 +168,10 @@ export async function archiveProduct(id: string) {
 }
 
 export async function restoreProduct(id: string) {
-  await requireAuth();
+  const session = await requireAuth();
+  if (!hasPermission(session.user, "canManageProducts")) {
+    return { error: "Unauthorized: You do not have permission to restore products." };
+  }
 
   try {
     await db.product.update({

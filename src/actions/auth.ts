@@ -2,12 +2,26 @@
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { verifyPin, createSession, deleteSession, getSession, SESSION_COOKIE } from "@/lib/auth";
+import {
+  verifyUserCredentials,
+  verifyPin,
+  createSession,
+  deleteSession,
+  getSession,
+  SESSION_COOKIE,
+} from "@/lib/auth";
 
 export async function loginAction(formData: FormData) {
-  const pin = (formData.get("pin") as string | null) ?? "";
+  const phone = ((formData.get("phone") as string | null) ?? "").trim();
+  const pin = ((formData.get("pin") as string | null) ?? "").trim();
 
-  const result = await verifyPin(pin);
+  let result;
+  if (phone) {
+    result = await verifyUserCredentials(phone, pin);
+  } else {
+    // Fallback to direct admin PIN verification
+    result = await verifyPin(pin);
+  }
 
   if (!result.success) {
     return {
@@ -17,7 +31,7 @@ export async function loginAction(formData: FormData) {
     };
   }
 
-  const sessionId = await createSession();
+  const sessionId = await createSession(result.user.id);
   const cookieStore = await cookies();
   cookieStore.set(SESSION_COOKIE, sessionId, {
     httpOnly: true,

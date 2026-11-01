@@ -10,7 +10,43 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ─── Auth ────────────────────────────────────────────────────────────────────
+// ─── Auth & Team ─────────────────────────────────────────────────────────────
+
+enum UserRole {
+  ADMIN
+  MODERATOR
+  MARKETER
+  CUSTOM
+}
+
+model User {
+  id             String        @id @default(uuid())
+  name           String
+  phone          String        @unique
+  pinHash        String        @map("pin_hash")
+  role           UserRole      @default(MARKETER)
+  permissions    Json?         // Custom permission flags for CUSTOM role
+  isActive       Boolean       @default(true) @map("is_active")
+  failedAttempts Int           @default(0) @map("failed_attempts")
+  lockedUntil    DateTime?     @map("locked_until")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  sessions       UserSession[]
+
+  @@map("users")
+}
+
+model UserSession {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("user_sessions")
+}
 
 model AdminCredential {
   id            String   @id @default(uuid())

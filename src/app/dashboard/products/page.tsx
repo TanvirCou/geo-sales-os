@@ -1,11 +1,15 @@
 import type { Metadata } from "next";
 import { getProducts } from "@/actions/products";
+import { getSession } from "@/lib/auth";
 import ProductListClient from "@/components/products/ProductListClient";
 
 export const metadata: Metadata = { title: "Products — GeoSales OS" };
 
 export default async function ProductsPage() {
-  const products = await getProducts({}); // fetch all: active + archived; client handles isActive filter
+  const [products, session] = await Promise.all([
+    getProducts({}),
+    getSession(),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -18,7 +22,11 @@ export default async function ProductsPage() {
         </p>
       </div>
 
-      <ProductListClient initialProducts={products} />
+      <ProductListClient
+        initialProducts={products}
+        userRole={session?.user.role}
+        userPermissions={session?.user.permissions}
+      />
     </div>
   );
 }

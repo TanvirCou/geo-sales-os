@@ -2,6 +2,7 @@
 
 import { db } from "@/lib/db";
 import { requireAuth } from "./auth";
+import { hasPermission } from "@/lib/permissions";
 import { revalidatePath } from "next/cache";
 import { geocodeLocation } from "./import";
 import { extractDistrictFromText } from "@/lib/district-resolver";
@@ -387,7 +388,10 @@ export async function searchAddressAutocomplete(
 }
 
 export async function createBusiness(data: BusinessInput) {
-  await requireAuth();
+  const session = await requireAuth();
+  if (!hasPermission(session.user, "canAddBusiness")) {
+    return { error: "Unauthorized: You do not have permission to create businesses." };
+  }
 
   if (!data.name || data.name.trim().length === 0) {
     return { error: "Business name is required." };
@@ -452,7 +456,10 @@ export async function createBusiness(data: BusinessInput) {
 }
 
 export async function updateBusiness(id: string, data: BusinessInput) {
-  await requireAuth();
+  const session = await requireAuth();
+  if (!hasPermission(session.user, "canEditBusiness")) {
+    return { error: "Unauthorized: You do not have permission to edit businesses." };
+  }
 
   if (!data.name || data.name.trim().length === 0) {
     return { error: "Business name is required." };
@@ -521,7 +528,10 @@ export async function updateBusiness(id: string, data: BusinessInput) {
  * If orders count > 0, return error and prompt for archive instead.
  */
 export async function deleteBusiness(id: string) {
-  await requireAuth();
+  const session = await requireAuth();
+  if (!hasPermission(session.user, "canDeleteBusiness")) {
+    return { error: "Unauthorized: Only administrators have permission to delete businesses." };
+  }
 
   const business = await db.business.findUnique({
     where: { id },
@@ -551,7 +561,10 @@ export async function deleteBusiness(id: string) {
 }
 
 export async function archiveBusiness(id: string) {
-  await requireAuth();
+  const session = await requireAuth();
+  if (!hasPermission(session.user, "canEditBusiness")) {
+    return { error: "Unauthorized: You do not have permission to archive businesses." };
+  }
 
   try {
     await db.business.update({
@@ -567,7 +580,10 @@ export async function archiveBusiness(id: string) {
 }
 
 export async function restoreBusiness(id: string) {
-  await requireAuth();
+  const session = await requireAuth();
+  if (!hasPermission(session.user, "canEditBusiness")) {
+    return { error: "Unauthorized: You do not have permission to restore businesses." };
+  }
 
   try {
     await db.business.update({

@@ -24,6 +24,7 @@ interface GoogleMapProps {
   apiKey?: string;
   mapId?: string;
   focusId?: string;
+  canAddBusiness?: boolean;
 }
 
 export { type UnifiedMapPoint } from "./BusinessMapFilters";
@@ -76,6 +77,7 @@ export default function GoogleMapClient({
   apiKey,
   mapId,
   focusId,
+  canAddBusiness = true,
 }: GoogleMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
@@ -1333,7 +1335,7 @@ export default function GoogleMapClient({
                     >
                       View Account &amp; Orders →
                     </Link>
-                  ) : (
+                  ) : canAddBusiness ? (
                     <button
                       onClick={() =>
                         setAddFromMapPreset({
@@ -1351,6 +1353,10 @@ export default function GoogleMapClient({
                     >
                       ➕ Convert to Client
                     </button>
+                  ) : (
+                    <div className="w-full py-2 px-3 bg-slate-100 dark:bg-slate-800 rounded-xl text-center text-xs text-slate-500 dark:text-slate-400 font-medium border border-slate-200 dark:border-slate-700">
+                      Prospect Lead (View Only)
+                    </div>
                   )}
                 </div>
               </div>

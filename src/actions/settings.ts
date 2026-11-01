@@ -6,39 +6,41 @@ import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 
 export async function getAdminProfile() {
-  await requireAuth();
+  const session = await requireAuth();
 
-  const creds = await db.$queryRawUnsafe<any[]>(
-    `SELECT "id", "name", "created_at", "updated_at" FROM "admin_credentials" LIMIT 1;`
-  );
+  const user = await db.user.findUnique({
+    where: { id: session.user.id },
+  });
 
-  const admin = creds[0];
   return {
-    name: admin?.name || "Admin User",
+    id: user?.id || session.user.id,
+    name: user?.name || session.user.name || "User",
+    phone: user?.phone || session.user.phone || "",
+    role: user?.role || session.user.role || "ADMIN",
+    permissions: user?.permissions || session.user.permissions,
   };
 }
 
 export async function updateAdminName(name: string) {
-  await requireAuth();
+  const session = await requireAuth();
 
   const trimmed = name.trim();
   if (!trimmed || trimmed.length < 2) {
-    return { error: "Admin name must be at least 2 characters long." };
+    return { error: "Name must be at least 2 characters long." };
   }
 
-  const creds = await db.$queryRawUnsafe<any[]>(
-    `SELECT "id" FROM "admin_credentials" LIMIT 1;`
-  );
+  await db.user.update({
+    where: { id: session.user.id },
+    data: { name: trimmed },
+  });
 
-  if (!creds[0]) {
-    return { error: "Admin credential not found." };
+  // Keep legacy admin_credentials in sync if this user is Admin
+  if (session.user.role === "ADMIN") {
+    await db.$executeRawUnsafe(
+      `UPDATE "admin_credentials" SET "name" = $1, "updated_at" = NOW();`,
+      trimmed
+    ).catch(() => {});
   }
-
-  await db.$executeRawUnsafe(
-    `UPDATE "admin_credentials" SET "name" = $1, "updated_at" = NOW() WHERE "id" = $2;`,
-    trimmed,
-    creds[0].id
-  );
 
   revalidatePath("/dashboard");
   revalidatePath("/dashboard/settings");
@@ -55,7 +57,7 @@ export async function changeAdminPin({
   newPin: string;
   confirmPin: string;
 }) {
-  await requireAuth();
+  const session = await requireAuth();
 
   // Validate format
   if (!/^\d{6}$/.test(currentPin)) {
@@ -74,18 +76,17 @@ export async function changeAdminPin({
     return { error: "New PIN cannot be the same as your current PIN." };
   }
 
-  // Fetch credential
-  const creds = await db.$queryRawUnsafe<any[]>(
-    `SELECT "id", "pin_hash" FROM "admin_credentials" LIMIT 1;`
-  );
+  // Fetch current user from DB
+  const user = await db.user.findUnique({
+    where: { id: session.user.id },
+  });
 
-  const cred = creds[0];
-  if (!cred) {
-    return { error: "Admin account record not found." };
+  if (!user) {
+    return { error: "User account record not found." };
   }
 
   // Verify current PIN
-  const isValid = await bcrypt.compare(currentPin, cred.pin_hash);
+  const isValid = await bcrypt.compare(currentPin, user.pinHash);
   if (!isValid) {
     return { error: "Incorrect current PIN. Please enter your existing PIN correctly." };
   }
@@ -94,17 +95,28 @@ export async function changeAdminPin({
   const salt = await bcrypt.genSalt(10);
   const newHash = await bcrypt.hash(newPin, salt);
 
-  // Update in database
-  await db.$executeRawUnsafe(
-    `UPDATE "admin_credentials" SET "pin_hash" = $1, "failed_attempts" = 0, "locked_until" = NULL, "updated_at" = NOW() WHERE "id" = $2;`,
-    newHash,
-    cred.id
-  );
+  // Update user in database
+  await db.user.update({
+    where: { id: user.id },
+    data: {
+      pinHash: newHash,
+      failedAttempts: 0,
+      lockedUntil: null,
+    },
+  });
+
+  // Keep legacy admin_credentials in sync if this user is Admin
+  if (session.user.role === "ADMIN") {
+    await db.$executeRawUnsafe(
+      `UPDATE "admin_credentials" SET "pin_hash" = $1, "failed_attempts" = 0, "locked_until" = NULL, "updated_at" = NOW();`,
+      newHash
+    ).catch(() => {});
+  }
 
   revalidatePath("/dashboard/settings");
 
   return {
     success: true,
-    message: "Security PIN has been updated successfully! Please use this new PIN next time you sign in.",
+    message: "PIN changed successfully! Use your new PIN for future logins.",
   };
 }

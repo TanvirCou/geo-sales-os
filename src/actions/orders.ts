@@ -2,6 +2,7 @@
 
 import { db } from "@/lib/db";
 import { requireAuth } from "./auth";
+import { hasPermission } from "@/lib/permissions";
 import { revalidatePath } from "next/cache";
 import { OrderStatus } from "@prisma/client";
 
@@ -63,6 +64,7 @@ export async function getOrders(params?: {
       items: {
         select: {
           id: true,
+          productId: true,
           quantity: true,
           unitPriceBdt: true,
           sourceProductName: true,
@@ -83,7 +85,7 @@ export async function getOrders(params?: {
     source: o.source,
     itemCount: o.items.length,
     totalBdt:
-      o.totalAmountBdt != null && Number(o.totalAmountBdt) > 0
+      o.totalAmountBdt != null && !isNaN(Number(o.totalAmountBdt))
         ? Number(o.totalAmountBdt)
         : o.items.length > 0
         ? o.items.reduce(
@@ -93,6 +95,7 @@ export async function getOrders(params?: {
         : null,
     items: o.items.map((i) => ({
       id: i.id,
+      productId: i.productId,
       name: i.sourceProductName || i.product?.name || "Item",
       quantity: Number(i.quantity),
       unitPriceBdt: Number(i.unitPriceBdt),
@@ -147,7 +150,7 @@ export async function getOrder(id: string) {
       lineTotal: Number(i.quantity) * Number(i.unitPriceBdt),
     })),
     totalBdt:
-      order.totalAmountBdt != null && Number(order.totalAmountBdt) > 0
+      order.totalAmountBdt != null && !isNaN(Number(order.totalAmountBdt))
         ? Number(order.totalAmountBdt)
         : order.items.length > 0
         ? order.items.reduce(
@@ -159,7 +162,10 @@ export async function getOrder(id: string) {
 }
 
 export async function createOrder(data: OrderInput) {
-  await requireAuth();
+  const session = await requireAuth();
+  if (!hasPermission(session.user, "canRecordOrder")) {
+    return { error: "Unauthorized: You do not have permission to record orders." };
+  }
 
   if (!data.businessId) {
     return { error: "Business selection is required." };
@@ -209,8 +215,108 @@ export async function createOrder(data: OrderInput) {
   }
 }
 
+export interface UpdateOrderInput {
+  id: string;
+  orderedAt?: string | null;
+  status?: OrderStatus;
+  externalOrderId?: string | null;
+  totalAmountBdt?: number | null;
+  isDirectTotal?: boolean;
+  items?: {
+    productId?: string | null;
+    sourceProductName?: string | null;
+    quantity: number;
+    unitPriceBdt: number;
+  }[];
+}
+
+export async function updateOrder(data: UpdateOrderInput) {
+  const session = await requireAuth();
+  if (!hasPermission(session.user, "canUpdateOrder")) {
+    return { error: "Unauthorized: You do not have permission to update orders." };
+  }
+
+  if (!data.id) {
+    return { error: "Order ID is required." };
+  }
+
+  try {
+    const existingOrder = await db.order.findUnique({
+      where: { id: data.id },
+      include: { items: true },
+    });
+
+    if (!existingOrder) {
+      return { error: "Order not found." };
+    }
+
+    const isDirect = data.isDirectTotal ?? (!data.items || data.items.length === 0);
+
+    let calculatedTotal: number = 0;
+    if (isDirect) {
+      if (data.totalAmountBdt != null && !isNaN(Number(data.totalAmountBdt))) {
+        calculatedTotal = Number(data.totalAmountBdt);
+      } else if (existingOrder.totalAmountBdt != null) {
+        calculatedTotal = Number(existingOrder.totalAmountBdt);
+      }
+    } else {
+      calculatedTotal = (data.items || []).reduce((sum, item) => {
+        const q = Number(item.quantity) || 0;
+        const p = Number(item.unitPriceBdt) || 0;
+        return sum + q * p;
+      }, 0);
+    }
+
+    await db.$transaction(async (tx) => {
+      await tx.order.update({
+        where: { id: data.id },
+        data: {
+          orderedAt: data.orderedAt ? new Date(data.orderedAt) : null,
+          status: data.status || existingOrder.status,
+          externalOrderId: data.externalOrderId?.trim() || existingOrder.externalOrderId,
+          totalAmountBdt: calculatedTotal,
+        },
+      });
+
+      await tx.orderItem.deleteMany({
+        where: { orderId: data.id },
+      });
+
+      if (!isDirect && data.items && data.items.length > 0) {
+        for (const item of data.items) {
+          if (!item.quantity || Number(item.quantity) <= 0) continue;
+          await tx.orderItem.create({
+            data: {
+              orderId: data.id,
+              productId: item.productId || null,
+              sourceProductName: item.sourceProductName?.trim() || null,
+              quantity: Number(item.quantity),
+              unitPriceBdt: Number(item.unitPriceBdt) || 0,
+            },
+          });
+        }
+      }
+    });
+
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/orders");
+    revalidatePath(`/dashboard/orders/${data.id}`);
+    revalidatePath("/dashboard/businesses");
+    revalidatePath(`/dashboard/businesses/${existingOrder.businessId}`);
+    revalidatePath("/dashboard/map/google");
+    revalidatePath("/dashboard/map/geoapify");
+
+    return { success: true };
+  } catch (err: any) {
+    return { error: err.message || "Failed to update order." };
+  }
+}
+
 export async function cancelOrder(id: string) {
-  await requireAuth();
+  const session = await requireAuth();
+  if (!hasPermission(session.user, "canUpdateOrder")) {
+    return { error: "Unauthorized: You do not have permission to update or cancel orders." };
+  }
 
   try {
     const order = await db.order.update({
@@ -234,7 +340,10 @@ export async function cancelOrder(id: string) {
  * If this was the business's only order, the business marker color returns to RED.
  */
 export async function deleteOrder(id: string) {
-  await requireAuth();
+  const session = await requireAuth();
+  if (!hasPermission(session.user, "canDeleteOrder")) {
+    return { error: "Unauthorized: Only administrators have permission to delete orders." };
+  }
 
   try {
     const order = await db.order.findUnique({

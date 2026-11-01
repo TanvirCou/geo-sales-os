@@ -2,6 +2,7 @@
 
 import { db } from "@/lib/db";
 import { requireAuth } from "./auth";
+import { hasPermission } from "@/lib/permissions";
 import { revalidatePath } from "next/cache";
 import { OrderStatus, Prisma } from "@prisma/client";
 import { extractDistrictFromText } from "@/lib/district-resolver";
@@ -626,7 +627,16 @@ export async function commitImportBatch(rows: ResolvedImportRow[]): Promise<{
   linkedBusinessesCount: number;
   error?: string;
 }> {
-  await requireAuth();
+  const session = await requireAuth();
+  if (!hasPermission(session.user, "canImport")) {
+    return {
+      success: false,
+      importedOrdersCount: 0,
+      newBusinessesCount: 0,
+      linkedBusinessesCount: 0,
+      error: "Unauthorized: You do not have permission to import data.",
+    };
+  }
 
   if (!rows || rows.length === 0) {
     return {

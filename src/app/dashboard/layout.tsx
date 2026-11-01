@@ -21,13 +21,23 @@ export default async function DashboardLayout({
     redirect("/login");
   }
 
-  const profile = await getAdminProfile().catch(() => ({ name: "Admin User" }));
+  const profile = await getAdminProfile().catch(() => ({
+    id: "",
+    name: "Admin User",
+    phone: "",
+    role: "ADMIN" as const,
+    permissions: null,
+  }));
 
   return (
     <ToastProvider>
       <div className="flex min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans antialiased">
         {/* Desktop Left Sidebar */}
-        <DashboardSidebar adminName={profile.name} />
+        <DashboardSidebar
+          adminName={profile.name}
+          role={profile.role}
+          permissions={profile.permissions}
+        />
 
         {/* Main Container */}
         <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden bg-slate-50 dark:bg-slate-950">
@@ -40,7 +50,11 @@ export default async function DashboardLayout({
         </div>
 
         {/* Native App-Style Mobile Bottom Navigation Bar & Sheet */}
-        <MobileBottomNav adminName={profile.name} />
+        <MobileBottomNav
+          adminName={profile.name}
+          role={profile.role}
+          permissions={profile.permissions}
+        />
       </div>
     </ToastProvider>
   );

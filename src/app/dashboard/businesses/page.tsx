@@ -1,13 +1,15 @@
 import type { Metadata } from "next";
 import { getBusinesses, getBusinessFilterOptions } from "@/actions/businesses";
+import { getSession } from "@/lib/auth";
 import BusinessListClient from "@/components/businesses/BusinessListClient";
 
 export const metadata: Metadata = { title: "Businesses — GeoSales OS" };
 
 export default async function BusinessesPage() {
-  const [businesses, filterOptions] = await Promise.all([
-    getBusinesses({}), // fetch all: active + archived; client handles isActive filter
+  const [businesses, filterOptions, session] = await Promise.all([
+    getBusinesses({}),
     getBusinessFilterOptions(),
+    getSession(),
   ]);
 
   return (
@@ -24,6 +26,8 @@ export default async function BusinessesPage() {
       <BusinessListClient
         initialBusinesses={businesses}
         filterOptions={filterOptions}
+        userRole={session?.user.role}
+        userPermissions={session?.user.permissions}
       />
     </div>
   );

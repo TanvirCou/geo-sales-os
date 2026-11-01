@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { logoutAction } from "@/actions/auth";
+import { hasPermission } from "@/lib/permissions";
 
 const navSections = [
   {
@@ -109,7 +110,15 @@ const navSections = [
   },
 ];
 
-export function DashboardSidebar({ adminName = "Admin User" }: { adminName?: string }) {
+export function DashboardSidebar({
+  adminName = "Admin User",
+  role = "ADMIN",
+  permissions,
+}: {
+  adminName?: string;
+  role?: string;
+  permissions?: any;
+}) {
   const pathname = usePathname();
   const [logoutPending, setLogoutPending] = useState(false);
   const avatarLetter = (adminName || "A").trim().charAt(0).toUpperCase() || "A";
@@ -123,6 +132,8 @@ export function DashboardSidebar({ adminName = "Admin User" }: { adminName?: str
     setLogoutPending(true);
     await logoutAction();
   };
+
+  const canImport = hasPermission({ role, permissions }, "canImport");
 
   return (
     <aside className="hidden lg:flex w-64 h-screen sticky top-0 shrink-0 bg-white dark:bg-slate-950 border-r border-slate-200 dark:border-slate-800/80 flex-col z-40 select-none transition-colors duration-150">
@@ -154,21 +165,34 @@ export function DashboardSidebar({ adminName = "Admin User" }: { adminName?: str
             </div>
             {section.items.map((item) => {
               const active = isActive(item.href);
+              const isImports = item.href === "/dashboard/imports";
+              const isLocked = isImports && !canImport;
               return (
                 <Link
                   key={item.href}
                   href={item.href}
                   id={`nav-${item.label.toLowerCase().replace(/[^a-z]/g, "-")}`}
-                  className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                     active
                       ? "bg-blue-50 dark:bg-slate-900 text-blue-600 dark:text-blue-400 font-semibold border-l-2 border-blue-600 dark:border-blue-500"
                       : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900/60"
                   }`}
                 >
-                  <span className={active ? "text-blue-600 dark:text-blue-400" : "text-slate-400 dark:text-slate-500"}>
-                    {item.icon}
-                  </span>
-                  <span>{item.label}</span>
+                  <div className="flex items-center gap-3">
+                    <span className={active ? "text-blue-600 dark:text-blue-400" : "text-slate-400 dark:text-slate-500"}>
+                      {item.icon}
+                    </span>
+                    <span>{item.label}</span>
+                  </div>
+                  {isLocked && (
+                    <span
+                      title="Access Restricted for your current role"
+                      className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 flex items-center gap-1"
+                    >
+                      <span>🔒</span>
+                      <span className="hidden xl:inline text-[9px] uppercase tracking-wider">Restricted</span>
+                    </span>
+                  )}
                 </Link>
               );
             })}
@@ -191,9 +215,9 @@ export function DashboardSidebar({ adminName = "Admin User" }: { adminName?: str
               <span className="text-xs font-semibold text-slate-900 dark:text-white truncate group-hover:text-blue-600 dark:group-hover:text-blue-400">
                 {adminName}
               </span>
-              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 flex items-center gap-1 font-medium">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                PIN Verified
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1 font-medium">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                {role.toUpperCase()}
               </span>
             </div>
           </div>

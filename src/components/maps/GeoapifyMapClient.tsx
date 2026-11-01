@@ -22,6 +22,7 @@ interface GeoapifyMapProps {
   areas?: string[];
   apiKey?: string;
   focusId?: string;
+  canAddBusiness?: boolean;
 }
 
 export { type UnifiedMapPoint } from "./BusinessMapFilters";
@@ -34,6 +35,7 @@ export default function GeoapifyMapClient({
   areas,
   apiKey,
   focusId,
+  canAddBusiness = true,
 }: GeoapifyMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
@@ -1083,7 +1085,7 @@ export default function GeoapifyMapClient({
                     >
                       View Account &amp; Orders →
                     </Link>
-                  ) : (
+                  ) : canAddBusiness ? (
                     <button
                       onClick={() => setAddFromMapPreset({
                         name: selectedPoint.name,
@@ -1099,6 +1101,10 @@ export default function GeoapifyMapClient({
                     >
                       ➕ Convert to Client
                     </button>
+                  ) : (
+                    <div className="w-full py-2 px-3 bg-slate-100 dark:bg-slate-800 rounded-xl text-center text-xs text-slate-500 dark:text-slate-400 font-medium border border-slate-200 dark:border-slate-700">
+                      Prospect Lead (View Only)
+                    </div>
                   )}
                 </div>
               </div>
