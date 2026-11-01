@@ -132,9 +132,10 @@ export interface RestaurantProspect {
   longitude: number;
   phoneRaw?: string;
   isClient: boolean;
+  isArchived?: boolean;
   clientBusinessId?: string;
   orderCount?: number;
-  markerColor: "green" | "red";
+  markerColor: "green" | "red" | "gray";
 }
 
 export async function fetchLiveRestaurantProspects(params: {
@@ -178,15 +179,17 @@ export async function fetchLiveRestaurantProspects(params: {
       return { prospects: [], total: 0 };
     }
 
-    // Fetch all active client businesses in our DB with their coordinates and names
+    // Fetch all client businesses in our DB with their coordinates, names and active status
     const dbClients = await db.business.findMany({
-      where: { isActive: true },
       select: {
         id: true,
         name: true,
         phoneNormalized: true,
         latitude: true,
         longitude: true,
+        isActive: true,
+        category: true,
+        address: true,
         _count: { select: { orders: true } },
       },
     });
@@ -243,17 +246,20 @@ export async function fetchLiveRestaurantProspects(params: {
       });
 
       const isClient = !!matchedClient;
+      const isArchived = matchedClient ? !matchedClient.isActive : false;
 
       return {
         id: placeId,
-        name,
-        category: catLabel,
-        address,
-        latitude: plat,
-        longitude: plon,
+        name: matchedClient?.name || name,
+        category: matchedClient?.category || catLabel,
+        address: matchedClient?.address || address,
+        latitude: matchedClient?.latitude != null ? Number(matchedClient.latitude) : plat,
+        longitude: matchedClient?.longitude != null ? Number(matchedClient.longitude) : plon,
         isClient,
+        isArchived,
         clientBusinessId: matchedClient?.id,
-        markerColor: isClient ? ("green" as const) : ("red" as const),
+        orderCount: matchedClient?._count.orders || 0,
+        markerColor: !isClient ? ("red" as const) : isArchived ? ("gray" as const) : ("green" as const),
       };
     });
 
@@ -281,11 +287,36 @@ export async function convertProspectToClient(prospect: {
     // Check if already in DB
     const existing = await db.business.findFirst({
       where: {
-        name: { equals: prospect.name.trim(), mode: "insensitive" },
+        OR: [
+          { name: { equals: prospect.name.trim(), mode: "insensitive" } },
+          ...(prospect.externalPlaceId ? [{ externalPlaceId: prospect.externalPlaceId }] : []),
+        ],
       },
     });
 
     if (existing) {
+      if (!existing.isActive) {
+        // Auto-Restore!
+        await db.business.update({
+          where: { id: existing.id },
+          data: {
+            isActive: true,
+            latitude: prospect.latitude ?? existing.latitude,
+            longitude: prospect.longitude ?? existing.longitude,
+            address: prospect.address?.trim() || existing.address,
+          },
+        });
+        revalidatePath("/dashboard/map");
+        revalidatePath("/dashboard/map/geoapify");
+        revalidatePath("/dashboard/map/google");
+        revalidatePath("/dashboard/businesses");
+        return {
+          success: true,
+          businessId: existing.id,
+          restored: true,
+          message: `‘${existing.name}’ was previously archived. It has been restored, and all historical records have been re-linked!`,
+        };
+      }
       return { success: true, businessId: existing.id, isExisting: true };
     }
 

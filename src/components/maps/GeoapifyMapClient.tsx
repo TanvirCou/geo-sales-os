@@ -1,11 +1,15 @@
 "use client";
 
 import { MapBusiness, RestaurantProspect, calculateGeoapifyRoute, fetchLiveRestaurantProspects } from "@/actions/map";
+import { restoreBusiness } from "@/actions/businesses";
 import { getDistrictCoordinates } from "@/lib/district-resolver";
 import Link from "next/link";
 import Script from "next/script";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useToast } from "@/components/ui/Toast";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import AddBusinessFromMapModal, { MapPointPreset } from "./AddBusinessFromMapModal";
+import RestoreBusinessFromMapModal from "./RestoreBusinessFromMapModal";
 import BusinessMapFilters, { MapFiltersState, UnifiedMapPoint } from "./BusinessMapFilters";
 
 declare global {
@@ -47,12 +51,18 @@ export default function GeoapifyMapClient({
   const isInitializingRef = useRef(false);
   const pendingSelectedPointIdRef = useRef<string | null>(null);
 
+  const router = useRouter();
+  const toast = useToast();
+  const [isPending, startTransition] = useTransition();
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [restoringTarget, setRestoringTarget] = useState<UnifiedMapPoint | null>(null);
+
   const [mapLoaded, setMapLoaded] = useState(false);
   const [selectedPoint, setSelectedPoint] = useState<UnifiedMapPoint | null>(null);
   const [routeInfo, setRouteInfo] = useState<{ distanceKm: number; durationMin: number } | null>(null);
   const [isRouting, setIsRouting] = useState(false);
 
-  // Live Prospects / Leads State (Red Markers)
+  // Live Prospects / Leads State (Red & Gray Markers)
   const [prospects, setProspects] = useState<RestaurantProspect[]>(initialProspects || []);
   const [isScanning, setIsScanning] = useState(false);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
@@ -100,12 +110,12 @@ export default function GeoapifyMapClient({
     return [...base, ...convertedClients];
   }, [initialBusinesses, convertedClients]);
 
-  // Prospect points transformed to unified points (Red Markers)
+  // Prospect points transformed to unified points (Red & Gray Markers)
   const prospectPoints: UnifiedMapPoint[] = useMemo(() => {
     return prospects
-      .filter((p) => !p.isClient)
+      .filter((p) => !p.isClient || p.isArchived)
       .map((p) => ({
-        id: p.id,
+        id: p.clientBusinessId || p.id,
         name: p.name,
         category: p.category || "Restaurant",
         area: "Dhaka",
@@ -114,9 +124,10 @@ export default function GeoapifyMapClient({
         phoneRaw: p.phoneRaw || null,
         latitude: p.latitude,
         longitude: p.longitude,
-        isClient: false,
-        orderCount: 0,
-        markerColor: "red" as const,
+        isClient: p.isClient,
+        isArchived: p.isArchived,
+        orderCount: p.orderCount || 0,
+        markerColor: p.isArchived ? ("gray" as const) : ("red" as const),
         externalPlaceId: p.id,
       }));
   }, [prospects]);
@@ -127,6 +138,7 @@ export default function GeoapifyMapClient({
     const combined = [...clientPoints, ...prospectPoints];
     return combined.filter((pt) => {
       if (filters.orderColor === "GREEN" && pt.markerColor !== "green") return false;
+      if (filters.orderColor === "GRAY" && pt.markerColor !== "gray") return false;
       if (filters.orderColor === "RED" && pt.markerColor !== "red") return false;
       if (filters.category !== "ALL" && !pt.category.toLowerCase().includes(filters.category.toLowerCase())) return false;
       // District filter: only apply to DB clients — prospect/red markers are geo-scanned
@@ -141,6 +153,7 @@ export default function GeoapifyMapClient({
   const displayedPoints = candidatePoints;
 
   const greenCount = displayedPoints.filter((p) => p.markerColor === "green").length;
+  const grayCount = displayedPoints.filter((p) => p.markerColor === "gray").length;
   const redCount = displayedPoints.filter((p) => p.markerColor === "red").length;
   const unlocatedClients = initialBusinesses.filter((b) => b.latitude == null || b.longitude == null);
 
@@ -597,6 +610,31 @@ export default function GeoapifyMapClient({
     }
   };
 
+  const handleConfirmRestore = () => {
+    if (!restoringTarget) return;
+    const target = restoringTarget;
+    setIsRestoring(true);
+    startTransition(async () => {
+      const res = await restoreBusiness(target.id);
+      setIsRestoring(false);
+      if (res?.error) {
+        toast.error(res.error);
+      } else {
+        toast.success(`‘${target.name}’ has been successfully restored!`);
+        setSelectedPoint((prev) => (prev ? { ...prev, isArchived: false, markerColor: "green" } : null));
+        setProspects((prev) =>
+          prev.map((p) =>
+            p.clientBusinessId === target.id || p.id === target.id
+              ? { ...p, isArchived: false, markerColor: "green", isClient: true }
+              : p
+          )
+        );
+        setRestoringTarget(null);
+        router.refresh();
+      }
+    });
+  };
+
 
   // Render Markers on MapLibre with Rich Interactive Popups
   useEffect(() => {
@@ -624,9 +662,12 @@ export default function GeoapifyMapClient({
 
     displayedPoints.forEach((pt) => {
       const isGreen = pt.markerColor === "green";
+      const isGray = pt.markerColor === "gray" || pt.isArchived;
       const catLower = pt.category.toLowerCase();
       const icon = isGreen
         ? "✓"
+        : isGray
+        ? "📁"
         : catLower.includes("hotel") || catLower.includes("accommodation")
         ? "🏨"
         : catLower.includes("parlour") || catLower.includes("salon") || catLower.includes("beauty") || catLower.includes("hair")
@@ -636,14 +677,16 @@ export default function GeoapifyMapClient({
         : "🍽️";
 
       const el = document.createElement("div");
-      el.className = `custom-map-pin ${isGreen ? "ordered-pin" : "unopened-pin"}`;
+      el.className = `custom-map-pin ${isGreen ? "ordered-pin" : isGray ? "archived-pin" : "unopened-pin"}`;
       el.style.width = isGreen ? "26px" : "24px";
       el.style.height = isGreen ? "26px" : "24px";
       el.style.borderRadius = "50%";
-      el.style.backgroundColor = isGreen ? "#10b981" : "#ef4444";
-      el.style.border = isGreen ? "3px solid #ffffff" : "2px solid #ffffff";
+      el.style.backgroundColor = isGreen ? "#10b981" : isGray ? "#64748b" : "#ef4444";
+      el.style.border = isGreen ? "3px solid #ffffff" : isGray ? "2px solid #ffffff" : "2px solid #ffffff";
       el.style.boxShadow = isGreen
         ? "0 0 14px rgba(16, 185, 129, 0.85), 0 2px 6px rgba(0,0,0,0.3)"
+        : isGray
+        ? "0 0 10px rgba(100, 116, 139, 0.85), 0 2px 4px rgba(0,0,0,0.2)"
         : "0 0 12px rgba(239, 68, 68, 0.85), 0 2px 4px rgba(0,0,0,0.2)";
       el.style.cursor = "pointer";
       el.style.display = "flex";
@@ -655,6 +698,8 @@ export default function GeoapifyMapClient({
       el.innerHTML = icon;
       el.title = isGreen
         ? `${pt.name} (🟢 Ordered - ${pt.orderCount} Orders)`
+        : isGray
+        ? `${pt.name} (📁 Archived Client - ${pt.orderCount} Orders)`
         : `${pt.name} (🔴 0 Orders - Hospitality Lead)`;
 
       // Popup Container DOM — theme handled by CSS classes .map-popup-inner etc.
@@ -669,18 +714,26 @@ export default function GeoapifyMapClient({
       // Subtitle (Category & Address)
       const subEl = document.createElement("div");
       subEl.className = "map-popup-sub";
-      subEl.style.marginBottom = isGreen ? "9px" : "12px";
+      subEl.style.marginBottom = isGreen || isGray ? "9px" : "12px";
       subEl.textContent = `${pt.category} • ${pt.address}`;
 
       popupContainer.appendChild(titleEl);
       popupContainer.appendChild(subEl);
 
-      // Status Badge (only for green ordered clients)
+      // Status Badge
       if (isGreen) {
         const badgeEl = document.createElement("div");
         badgeEl.className = "map-popup-badge";
         badgeEl.style.marginBottom = "11px";
         badgeEl.textContent = `🟢 Ordered Client (${pt.orderCount} Order${pt.orderCount > 1 ? "s" : ""})`;
+        popupContainer.appendChild(badgeEl);
+      } else if (isGray) {
+        const badgeEl = document.createElement("div");
+        badgeEl.className = "map-popup-badge";
+        badgeEl.style.marginBottom = "11px";
+        badgeEl.style.background = "#64748b";
+        badgeEl.style.color = "#ffffff";
+        badgeEl.textContent = `📁 Archived Client (${pt.orderCount} Past Order${pt.orderCount > 1 ? "s" : ""})`;
         popupContainer.appendChild(badgeEl);
       }
 
@@ -949,10 +1002,15 @@ export default function GeoapifyMapClient({
             </button>
 
             {/* Quick Legend floating card */}
-            <div className="px-3 py-2 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 backdrop-blur-md shadow-md flex items-center gap-3 text-[11px] font-semibold">
+            <div className="px-3 py-2 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 backdrop-blur-md shadow-md flex items-center gap-2.5 text-[11px] font-semibold">
               <span className="flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block shadow-[0_0_6px_rgba(16,185,129,0.8)]" />
                 Clients ({greenCount})
+              </span>
+              <span className="text-slate-300 dark:text-slate-700">|</span>
+              <span className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
+                <span className="w-2.5 h-2.5 rounded-full bg-slate-500 inline-block shadow-[0_0_6px_rgba(100,116,139,0.8)]" />
+                Archived ({grayCount})
               </span>
               <span className="text-slate-300 dark:text-slate-700">|</span>
               <span className="flex items-center gap-1.5 text-rose-700 dark:text-rose-400">
@@ -1032,6 +1090,8 @@ export default function GeoapifyMapClient({
                       className={`w-3 h-3 rounded-full shrink-0 ${
                         selectedPoint.markerColor === "green"
                           ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.7)]"
+                          : selectedPoint.markerColor === "gray" || selectedPoint.isArchived
+                          ? "bg-slate-400 shadow-[0_0_8px_rgba(100,116,139,0.7)]"
                           : "bg-rose-500 shadow-[0_0_8px_rgba(239,68,68,0.7)]"
                       }`}
                     />
@@ -1051,11 +1111,15 @@ export default function GeoapifyMapClient({
                       className={`font-semibold px-2 py-0.5 rounded-full text-[11px] ${
                         selectedPoint.markerColor === "green"
                           ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20"
+                          : selectedPoint.markerColor === "gray" || selectedPoint.isArchived
+                          ? "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700"
                           : "bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20"
                       }`}
                     >
                       {selectedPoint.markerColor === "green"
                         ? `🟢 Ordered (${selectedPoint.orderCount} Orders)`
+                        : selectedPoint.markerColor === "gray" || selectedPoint.isArchived
+                        ? `📁 Archived (${selectedPoint.orderCount} Past Orders)`
                         : selectedPoint.isClient
                         ? "🔴 In DB (0 Orders)"
                         : "🔴 New Prospect (0 Orders)"}
@@ -1085,6 +1149,22 @@ export default function GeoapifyMapClient({
                     >
                       View Account &amp; Orders →
                     </Link>
+                  ) : selectedPoint.markerColor === "gray" || selectedPoint.isArchived ? (
+                    <div className="space-y-2">
+                      <button
+                        onClick={() => setRestoringTarget(selectedPoint)}
+                        className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                      >
+                        <span>🔄</span>
+                        <span>Re-activate / Restore Account</span>
+                      </button>
+                      <Link
+                        href={`/dashboard/businesses/${selectedPoint.id}`}
+                        className="w-full py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-center transition-all cursor-pointer block"
+                      >
+                        View Historical Records →
+                      </Link>
+                    </div>
                   ) : canAddBusiness ? (
                     <button
                       onClick={() => setAddFromMapPreset({
@@ -1127,7 +1207,7 @@ export default function GeoapifyMapClient({
           preset={addFromMapPreset}
           onClose={() => setAddFromMapPreset(null)}
           onSuccess={(name, newId) => {
-            setConversionSuccess(`✅ "${name}" সফলভাবে নতুন বিজনেস হিসেবে তৈরি হয়েছে!`);
+            setConversionSuccess(`✅ "${name}" has been converted to client successfully!`);
             // Remove from prospect leads
             setProspects((prev) => prev.filter((p) => p.name.toLowerCase() !== name.toLowerCase()));
             // Add as registered DB client (0 orders -> red marker)
@@ -1152,6 +1232,15 @@ export default function GeoapifyMapClient({
           }}
         />
       )}
+
+      {/* Restore Business Confirmation Modal */}
+      <RestoreBusinessFromMapModal
+        business={restoringTarget}
+        isOpen={!!restoringTarget}
+        isPending={isRestoring}
+        onClose={() => setRestoringTarget(null)}
+        onConfirm={handleConfirmRestore}
+      />
     </div>
   );
 }

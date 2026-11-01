@@ -15,8 +15,9 @@ export interface UnifiedMapPoint {
   latitude: number;
   longitude: number;
   isClient: boolean;
+  isArchived?: boolean;
   orderCount: number;
-  markerColor: "green" | "red";
+  markerColor: "green" | "red" | "gray";
   externalPlaceId?: string;
 }
 
@@ -25,7 +26,7 @@ export interface MapFiltersState {
   category: string;
   district: string;
   area: string;
-  orderColor: "ALL" | "GREEN" | "RED";
+  orderColor: "ALL" | "GREEN" | "RED" | "GRAY";
 }
 
 interface FilterProps {
@@ -163,6 +164,7 @@ export default function BusinessMapFilters({
     // 2. Filter live results according to active orderColor / category / district
     const filteredLive = liveResults.filter((pt) => {
       if (filters.orderColor === "GREEN" && pt.markerColor !== "green") return false;
+      if (filters.orderColor === "GRAY" && pt.markerColor !== "gray") return false;
       if (filters.orderColor === "RED" && pt.markerColor !== "red") return false;
       if (
         filters.category !== "ALL" &&
@@ -302,8 +304,10 @@ export default function BusinessMapFilters({
                       <div className="flex items-start gap-2.5 min-w-0 flex-1">
                         <span
                           className={`w-2.5 h-2.5 rounded-full mt-1.5 shrink-0 ${
-                            isGreen
+                            pt.markerColor === "green"
                               ? "bg-emerald-500 shadow-sm shadow-emerald-500/50"
+                              : pt.markerColor === "gray" || pt.isArchived
+                              ? "bg-slate-400 shadow-sm shadow-slate-400/50"
                               : "bg-rose-500 shadow-sm shadow-rose-500/50"
                           }`}
                         />
@@ -321,9 +325,13 @@ export default function BusinessMapFilters({
                       </div>
 
                       <div className="shrink-0 flex items-center gap-2">
-                        {isGreen ? (
+                        {pt.markerColor === "green" ? (
                           <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
                             {pt.orderCount} Order{pt.orderCount !== 1 ? "s" : ""}
+                          </span>
+                        ) : pt.markerColor === "gray" || pt.isArchived ? (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                            Archived ({pt.orderCount})
                           </span>
                         ) : (
                           <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20">
@@ -375,6 +383,7 @@ export default function BusinessMapFilters({
         >
           <option value="ALL">All Markers</option>
           <option value="GREEN">🟢 Clients</option>
+          <option value="GRAY">📁 Archived</option>
           <option value="RED">🔴 Leads</option>
         </select>
 

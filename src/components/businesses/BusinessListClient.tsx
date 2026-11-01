@@ -380,23 +380,28 @@ export default function BusinessListClient({
     };
 
     startTransition(async () => {
-      let res;
       if (editingBusiness) {
-        res = await updateBusiness(editingBusiness.id, payload);
-      } else {
-        res = await createBusiness(payload);
-      }
-
-      if (res?.error) {
-        setFormError(res.error);
-      } else {
-        setIsModalOpen(false);
-        if (editingBusiness) {
-          toast.success(`"${formName}" updated successfully.`);
+        const res = await updateBusiness(editingBusiness.id, payload);
+        if (res?.error) {
+          setFormError(res.error);
         } else {
-          toast.success(`Business "${formName}" added to directory.`);
+          setIsModalOpen(false);
+          toast.success(`"${formName}" updated successfully.`);
+          router.refresh();
         }
-        router.refresh();
+      } else {
+        const res = await createBusiness(payload);
+        if (res?.error) {
+          setFormError(res.error);
+        } else {
+          setIsModalOpen(false);
+          if (res?.restored) {
+            toast.success(res.message || `‘${formName}’ has been successfully restored from archive!`);
+          } else {
+            toast.success(`Business "${formName}" added to directory.`);
+          }
+          router.refresh();
+        }
       }
     });
   };

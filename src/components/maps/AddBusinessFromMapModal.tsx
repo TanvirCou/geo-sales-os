@@ -70,7 +70,11 @@ export default function AddBusinessFromMapModal({
         setFormError(res.error);
         toast.error(res.error);
       } else {
-        toast.success(`"${formName.trim()}" converted to client successfully!`);
+        if (res?.restored) {
+          toast.success(res.message || `‘${formName.trim()}’ has been successfully restored from archive!`);
+        } else {
+          toast.success(`"${formName.trim()}" converted to client successfully!`);
+        }
         onSuccess?.(formName.trim(), res?.businessId);
         router.refresh();
         onClose();

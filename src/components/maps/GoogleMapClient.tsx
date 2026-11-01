@@ -1,11 +1,15 @@
 "use client";
 
 import { MapBusiness, RestaurantProspect, calculateGeoapifyRoute, fetchLiveRestaurantProspects } from "@/actions/map";
+import { restoreBusiness } from "@/actions/businesses";
 import { getDistrictCoordinates } from "@/lib/district-resolver";
 import Link from "next/link";
 import Script from "next/script";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useToast } from "@/components/ui/Toast";
 import AddBusinessFromMapModal, { MapPointPreset } from "./AddBusinessFromMapModal";
+import RestoreBusinessFromMapModal from "./RestoreBusinessFromMapModal";
 import BusinessMapFilters, { MapFiltersState, UnifiedMapPoint } from "./BusinessMapFilters";
 
 declare global {
@@ -31,6 +35,7 @@ export { type UnifiedMapPoint } from "./BusinessMapFilters";
 
 function buildGoogleInfoWindowHtml(pt: UnifiedMapPoint, closeBtnId: string, routeBtnId: string) {
   const isGreen = pt.markerColor === "green";
+  const isGray = pt.markerColor === "gray" || pt.isArchived;
   return `
     <div class="map-popup-inner" style="position:relative;">
       <!-- Custom close button -->
@@ -42,13 +47,17 @@ function buildGoogleInfoWindowHtml(pt: UnifiedMapPoint, closeBtnId: string, rout
       <!-- Business name -->
       <div class="map-popup-title">${pt.name}</div>
       <!-- Category & address -->
-      <div class="map-popup-sub" style="margin-bottom:${isGreen ? "9px" : "12px"}">
+      <div class="map-popup-sub" style="margin-bottom:${isGreen || isGray ? "9px" : "12px"}">
         ${pt.category} • ${pt.address}
       </div>
       ${
         isGreen
           ? `<div class="map-popup-badge" style="margin-bottom:8px;">
               🟢 Ordered Client (${pt.orderCount} Order${pt.orderCount > 1 ? "s" : ""})
+            </div>`
+          : isGray
+          ? `<div class="map-popup-badge-gray" style="margin-bottom:8px; display:inline-flex; align-items:center; gap:5px; padding:3px 8px; border-radius:6px; font-size:11px; font-weight:600; background:#f1f5f9; color:#475569; border:1px solid #cbd5e1;">
+              📁 Archived Client (${pt.orderCount || 0} Past Orders)
             </div>`
           : `<div class="map-popup-badge-red" style="margin-bottom:8px;">
               🔴 Lead / Prospect (0 Orders)
@@ -94,6 +103,12 @@ export default function GoogleMapClient({
   const pendingSelectedPointIdRef = useRef<string | null>(null);
   const currentOpenPointIdRef = useRef<string | null>(null);
   const flightAnimationRef = useRef<number | null>(null);
+
+  const router = useRouter();
+  const toast = useToast();
+  const [isPending, startTransition] = useTransition();
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [restoringTarget, setRestoringTarget] = useState<UnifiedMapPoint | null>(null);
 
   const [mapLoaded, setMapLoaded] = useState(false);
   const [selectedPoint, setSelectedPoint] = useState<UnifiedMapPoint | null>(null);
@@ -149,12 +164,12 @@ export default function GoogleMapClient({
     return [...base, ...convertedClients];
   }, [initialBusinesses, convertedClients]);
 
-  // Prospect points transformed to unified points (Red Markers)
+  // Prospect points transformed to unified points (Red or Gray Markers)
   const prospectPoints: UnifiedMapPoint[] = useMemo(() => {
     return prospects
-      .filter((p) => !p.isClient)
+      .filter((p) => !p.isClient || p.isArchived)
       .map((p) => ({
-        id: p.id,
+        id: p.clientBusinessId || p.id,
         name: p.name,
         category: p.category || "Restaurant",
         area: "Dhaka",
@@ -163,9 +178,10 @@ export default function GoogleMapClient({
         phoneRaw: p.phoneRaw || null,
         latitude: p.latitude,
         longitude: p.longitude,
-        isClient: false,
-        orderCount: 0,
-        markerColor: "red" as const,
+        isClient: !p.isArchived && p.isClient,
+        isArchived: p.isArchived,
+        orderCount: p.orderCount || 0,
+        markerColor: p.isArchived ? ("gray" as const) : ("red" as const),
         externalPlaceId: p.id,
       }));
   }, [prospects]);
@@ -177,6 +193,7 @@ export default function GoogleMapClient({
     return combined.filter((pt) => {
       // Order color filter
       if (filters.orderColor === "GREEN" && pt.markerColor !== "green") return false;
+      if (filters.orderColor === "GRAY" && pt.markerColor !== "gray") return false;
       if (filters.orderColor === "RED" && pt.markerColor !== "red") return false;
 
       // Category filter
@@ -202,6 +219,7 @@ export default function GoogleMapClient({
   const displayedPoints = candidatePoints;
 
   const greenCount = displayedPoints.filter((p) => p.markerColor === "green").length;
+  const grayCount = displayedPoints.filter((p) => p.markerColor === "gray").length;
   const redCount = displayedPoints.filter((p) => p.markerColor === "red").length;
   const unlocatedClients = initialBusinesses.filter((b) => b.latitude == null || b.longitude == null);
 
@@ -624,14 +642,51 @@ export default function GoogleMapClient({
     }
   };
 
+  const handleConfirmRestore = () => {
+    if (!restoringTarget) return;
+    const target = restoringTarget;
+    setIsRestoring(true);
+    startTransition(async () => {
+      const res = await restoreBusiness(target.id);
+      setIsRestoring(false);
+      if (res?.error) {
+        toast.error(res.error);
+      } else {
+        toast.success(`‘${target.name}’ has been successfully restored!`);
+        setSelectedPoint((prev) => (prev ? { ...prev, isArchived: false, markerColor: "green" } : null));
+        setProspects((prev) =>
+          prev.map((p) =>
+            p.clientBusinessId === target.id || p.id === target.id
+              ? { ...p, isArchived: false, markerColor: "green", isClient: true }
+              : p
+          )
+        );
+        const entry = markersMapRef.current.get(target.id);
+        if (entry && window.google) {
+          entry.point.markerColor = "green";
+          entry.point.isArchived = false;
+          entry.point.isClient = true;
+          entry.marker.setIcon(getMarkerIcon("green", entry.point.category));
+          entry.marker.setTitle(`${target.name} (🟢 Ordered - ${entry.point.orderCount} Orders)`);
+        }
+        setRestoringTarget(null);
+        router.refresh();
+      }
+    });
+  };
 
-  // Helper: Create custom Google Map pin icon (cached by isGreen + icon emoji)
-  const getMarkerIcon = useCallback((isGreen: boolean, category: string) => {
+
+  // Helper: Create custom Google Map pin icon (cached by markerColor + icon emoji)
+  const getMarkerIcon = useCallback((markerColor: "green" | "red" | "gray", category: string) => {
     if (!window.google) return undefined;
 
+    const isGreen = markerColor === "green";
+    const isGray = markerColor === "gray";
     const catLower = category.toLowerCase();
     const icon = isGreen
       ? "✓"
+      : isGray
+      ? "📁"
       : catLower.includes("hotel") || catLower.includes("accommodation")
       ? "🏨"
       : catLower.includes("parlour") || catLower.includes("salon") || catLower.includes("beauty") || catLower.includes("hair")
@@ -640,19 +695,19 @@ export default function GoogleMapClient({
       ? "☕"
       : "🍽️";
 
-    const cacheKey = `${isGreen ? "green" : "red"}_${icon}`;
+    const cacheKey = `${markerColor}_${icon}`;
     if (iconCacheRef.current.has(cacheKey)) {
       return iconCacheRef.current.get(cacheKey);
     }
 
-    const color = isGreen ? "#10b981" : "#ef4444";
+    const color = isGreen ? "#10b981" : isGray ? "#64748b" : "#ef4444";
     const size = isGreen ? 28 : 26;
     const radius = isGreen ? 12 : 11;
 
     const svg = `
       <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
         <circle cx="${size / 2}" cy="${size / 2}" r="${radius}" fill="${color}" stroke="#ffffff" stroke-width="2.5"/>
-        <text x="${size / 2}" y="${size / 2 + (isGreen ? 4 : 4)}" font-size="${isGreen ? 12 : 11}" font-weight="bold" fill="#ffffff" text-anchor="middle" dominant-baseline="central" font-family="system-ui, -apple-system, sans-serif">${icon}</text>
+        <text x="${size / 2}" y="${size / 2 + 4}" font-size="${isGreen ? 12 : 11}" font-weight="bold" fill="#ffffff" text-anchor="middle" dominant-baseline="central" font-family="system-ui, -apple-system, sans-serif">${icon}</text>
       </svg>
     `;
 
@@ -856,7 +911,7 @@ export default function GoogleMapClient({
     }
 
     clientPoints.forEach((pt) => {
-      const iconConfig = getMarkerIcon(true, pt.category);
+      const iconConfig = getMarkerIcon("green", pt.category);
       const marker = new window.google.maps.Marker({
         position: { lat: pt.latitude, lng: pt.longitude },
         map,
@@ -875,7 +930,7 @@ export default function GoogleMapClient({
     });
   }, [mapLoaded, clientPoints, getMarkerIcon, openPointInfoWindow]);
 
-  // Render / sync red live prospect markers (updates when prospects change)
+  // Render / sync red live prospect and gray archived markers
   useEffect(() => {
     if (!mapLoaded || !mapInstanceRef.current || !window.google) return;
     const map = mapInstanceRef.current;
@@ -898,13 +953,16 @@ export default function GoogleMapClient({
     prospectPoints.forEach((pt) => {
       const existing = markersMapRef.current.get(pt.id);
       if (!existing) {
-        const iconConfig = getMarkerIcon(false, pt.category);
+        const iconConfig = getMarkerIcon(pt.markerColor, pt.category);
         const marker = new window.google.maps.Marker({
           position: { lat: pt.latitude, lng: pt.longitude },
           map,
-          title: `${pt.name} (🔴 0 Orders - Hospitality Lead)`,
+          title:
+            pt.markerColor === "gray"
+              ? `${pt.name} (📁 Archived - ${pt.orderCount} Past Orders)`
+              : `${pt.name} (🔴 0 Orders - Hospitality Lead)`,
           icon: iconConfig,
-          zIndex: 10,
+          zIndex: pt.markerColor === "gray" ? 50 : 10,
         });
         (marker as any).__pointId = pt.id;
 
@@ -932,6 +990,7 @@ export default function GoogleMapClient({
 
       // Order color filter
       if (filters.orderColor === "GREEN" && pt.markerColor !== "green") isVisible = false;
+      if (filters.orderColor === "GRAY" && pt.markerColor !== "gray") isVisible = false;
       if (filters.orderColor === "RED" && pt.markerColor !== "red") isVisible = false;
 
       // Category filter
@@ -998,6 +1057,10 @@ export default function GoogleMapClient({
           next.orderColor = "ALL";
           changed = true;
         }
+        if (prev.orderColor === "GRAY" && pt.markerColor !== "gray") {
+          next.orderColor = "ALL";
+          changed = true;
+        }
         if (prev.orderColor === "RED" && pt.markerColor !== "red") {
           next.orderColor = "ALL";
           changed = true;
@@ -1026,15 +1089,18 @@ export default function GoogleMapClient({
       if (!record) {
         // Business doesn't have a rendered marker yet.
         // Instantiate marker immediately on Google Map so user gets instant response
-        const iconConfig = getMarkerIcon(pt.isClient, pt.category);
+        const iconConfig = getMarkerIcon(pt.markerColor, pt.category);
         const newMarker = new window.google.maps.Marker({
           position: { lat: pt.latitude, lng: pt.longitude },
           map,
-          title: pt.isClient
-            ? `${pt.name} (🟢 Ordered - ${pt.orderCount} Orders)`
-            : `${pt.name} (🔴 0 Orders - Hospitality Lead)`,
+          title:
+            pt.markerColor === "green"
+              ? `${pt.name} (🟢 Ordered - ${pt.orderCount} Orders)`
+              : pt.markerColor === "gray"
+              ? `${pt.name} (📁 Archived - ${pt.orderCount} Past Orders)`
+              : `${pt.name} (🔴 0 Orders - Hospitality Lead)`,
           icon: iconConfig,
-          zIndex: pt.isClient ? 100 : 10,
+          zIndex: pt.markerColor === "green" ? 100 : pt.markerColor === "gray" ? 50 : 10,
         });
         (newMarker as any).__pointId = pt.id;
 
@@ -1207,6 +1273,11 @@ export default function GoogleMapClient({
                 Clients ({greenCount})
               </span>
               <span className="text-slate-300 dark:text-slate-700">|</span>
+              <span className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
+                <span className="w-2.5 h-2.5 rounded-full bg-slate-500 inline-block shadow-[0_0_6px_rgba(100,116,139,0.8)]" />
+                Archived ({grayCount})
+              </span>
+              <span className="text-slate-300 dark:text-slate-700">|</span>
               <span className="flex items-center gap-1.5 text-rose-700 dark:text-rose-400">
                 <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block shadow-[0_0_6px_rgba(239,68,68,0.8)]" />
                 Leads ({redCount})
@@ -1284,6 +1355,8 @@ export default function GoogleMapClient({
                       className={`w-3 h-3 rounded-full shrink-0 ${
                         selectedPoint.markerColor === "green"
                           ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.7)]"
+                          : selectedPoint.markerColor === "gray" || selectedPoint.isArchived
+                          ? "bg-slate-400 shadow-[0_0_8px_rgba(100,116,139,0.7)]"
                           : "bg-rose-500 shadow-[0_0_8px_rgba(239,68,68,0.7)]"
                       }`}
                     />
@@ -1303,12 +1376,18 @@ export default function GoogleMapClient({
                       className={`font-semibold px-2 py-0.5 rounded-full text-[11px] ${
                         selectedPoint.markerColor === "green"
                           ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20"
+                          : selectedPoint.markerColor === "gray" || selectedPoint.isArchived
+                          ? "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700"
                           : "bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20"
                       }`}
                     >
                       {selectedPoint.markerColor === "green"
                         ? `🟢 Ordered (${selectedPoint.orderCount} Orders)`
-                        : "🔴 No Orders (0 Orders)"}
+                        : selectedPoint.markerColor === "gray" || selectedPoint.isArchived
+                        ? `📁 Archived (${selectedPoint.orderCount} Past Orders)`
+                        : selectedPoint.isClient
+                        ? "🔴 In DB (0 Orders)"
+                        : "🔴 New Prospect (0 Orders)"}
                     </span>
                   </div>
 
@@ -1335,6 +1414,22 @@ export default function GoogleMapClient({
                     >
                       View Account &amp; Orders →
                     </Link>
+                  ) : selectedPoint.markerColor === "gray" || selectedPoint.isArchived ? (
+                    <div className="space-y-2">
+                      <button
+                        onClick={() => setRestoringTarget(selectedPoint)}
+                        className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                      >
+                        <span>🔄</span>
+                        <span>Re-activate / Restore Account</span>
+                      </button>
+                      <Link
+                        href={`/dashboard/businesses/${selectedPoint.id}`}
+                        className="w-full py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-center transition-all cursor-pointer block"
+                      >
+                        View Historical Records →
+                      </Link>
+                    </div>
                   ) : canAddBusiness ? (
                     <button
                       onClick={() =>
@@ -1364,7 +1459,7 @@ export default function GoogleMapClient({
               <div className="text-center py-10 px-4 space-y-2">
                 <span className="text-3xl">🗺️</span>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Click any <strong className="text-emerald-600">Green</strong> or <strong className="text-rose-600">Red</strong> pin to inspect the business. Red pins can be converted to a client.
+                  Click any <strong className="text-emerald-600">Green</strong>, <strong className="text-slate-500">Gray</strong>, or <strong className="text-rose-600">Red</strong> pin to inspect the business. Red pins can be converted to a client.
                 </p>
               </div>
             )}
@@ -1379,7 +1474,7 @@ export default function GoogleMapClient({
           preset={addFromMapPreset}
           onClose={() => setAddFromMapPreset(null)}
           onSuccess={(name, newId) => {
-            setConversionSuccess(`✅ "${name}" সফলভাবে নতুন বিজনেস হিসেবে তৈরি হয়েছে!`);
+            setConversionSuccess(`✅ "${name}" has been converted to client successfully!`);
             // Remove from prospect leads
             setProspects((prev) => prev.filter((p) => p.name.toLowerCase() !== name.toLowerCase()));
             // Add as registered DB client (0 orders -> red marker)
@@ -1404,6 +1499,15 @@ export default function GoogleMapClient({
           }}
         />
       )}
+
+      {/* Restore Business Confirmation Modal */}
+      <RestoreBusinessFromMapModal
+        business={restoringTarget}
+        isOpen={!!restoringTarget}
+        isPending={isRestoring}
+        onClose={() => setRestoringTarget(null)}
+        onConfirm={handleConfirmRestore}
+      />
     </div>
   );
 }

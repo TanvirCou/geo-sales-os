@@ -427,6 +427,57 @@ export async function createBusiness(data: BusinessInput) {
   }
 
   try {
+    // ── Deduplication & Auto-Restore Check ──────────────────────────────────────
+    const existing = await db.business.findFirst({
+      where: {
+        OR: [
+          { name: { equals: data.name.trim(), mode: "insensitive" } },
+          ...(phoneNormalized ? [{ phoneNormalized }] : []),
+        ],
+      },
+    });
+
+    if (existing) {
+      if (existing.isActive) {
+        return {
+          error: `‘${existing.name}’ already exists in the active client directory.`,
+          isExisting: true,
+          businessId: existing.id,
+        };
+      }
+
+      // If business was archived -> Auto-Restore and link history!
+      const restored = await db.business.update({
+        where: { id: existing.id },
+        data: {
+          isActive: true,
+          address: formattedAddress || data.address?.trim() || existing.address,
+          area: data.area?.trim() || existing.area,
+          district: resolvedDistrict || existing.district,
+          category: data.category?.trim() || existing.category,
+          contactName: data.contactName?.trim() || existing.contactName,
+          phoneRaw: data.phoneRaw?.trim() || existing.phoneRaw,
+          phoneNormalized: phoneNormalized || existing.phoneNormalized,
+          latitude: latitude != null ? latitude : existing.latitude,
+          longitude: longitude != null ? longitude : existing.longitude,
+          coordinateSource: latitude != null ? "geoapify_verified" : existing.coordinateSource,
+        },
+      });
+
+      revalidatePath("/dashboard");
+      revalidatePath("/dashboard/businesses");
+      revalidatePath(`/dashboard/businesses/${restored.id}`);
+      revalidatePath("/dashboard/map/google");
+      revalidatePath("/dashboard/map/geoapify");
+
+      return {
+        success: true,
+        businessId: restored.id,
+        restored: true,
+        message: `‘${restored.name}’ was previously archived. It has been restored, and all historical records have been re-linked!`,
+      };
+    }
+
     const business = await db.business.create({
       data: {
         name: data.name.trim(),
@@ -573,6 +624,8 @@ export async function archiveBusiness(id: string) {
     });
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/businesses");
+    revalidatePath("/dashboard/map/google");
+    revalidatePath("/dashboard/map/geoapify");
     return { success: true };
   } catch (err: any) {
     return { error: err.message || "Failed to archive business." };
@@ -592,6 +645,9 @@ export async function restoreBusiness(id: string) {
     });
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/businesses");
+    revalidatePath(`/dashboard/businesses/${id}`);
+    revalidatePath("/dashboard/map/google");
+    revalidatePath("/dashboard/map/geoapify");
     return { success: true };
   } catch (err: any) {
     return { error: err.message || "Failed to restore business." };

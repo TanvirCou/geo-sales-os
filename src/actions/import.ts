@@ -684,24 +684,30 @@ export async function commitImportBatch(rows: ResolvedImportRow[]): Promise<{
 
             if (existing) {
               businessId = existing.id;
-              // If existing business lacked lat/lon and we resolved it now, update it
+              // If existing business was archived, reactivate it since new orders are being imported!
+              const updateData: Prisma.BusinessUpdateInput = {};
+              if (!existing.isActive) {
+                updateData.isActive = true;
+              }
               if (
                 (!existing.latitude || !existing.longitude) &&
                 primaryRow.latitude &&
                 primaryRow.longitude
               ) {
+                updateData.latitude = primaryRow.latitude;
+                updateData.longitude = primaryRow.longitude;
+                updateData.address = primaryRow.formattedAddress || existing.address;
+                updateData.placeProvider = "geoapify";
+                updateData.externalPlaceId = primaryRow.placeId || existing.externalPlaceId;
+              }
+              if (primaryRow.category && (!existing.category || existing.category === "General")) {
+                updateData.category = primaryRow.category;
+              }
+
+              if (Object.keys(updateData).length > 0) {
                 await tx.business.update({
                   where: { id: existing.id },
-                  data: {
-                    latitude: primaryRow.latitude,
-                    longitude: primaryRow.longitude,
-                    address: primaryRow.formattedAddress || existing.address,
-                    placeProvider: "geoapify",
-                    externalPlaceId: primaryRow.placeId || existing.externalPlaceId,
-                    ...(primaryRow.category && (!existing.category || existing.category === "General")
-                      ? { category: primaryRow.category }
-                      : {}),
-                  },
+                  data: updateData,
                 });
               }
               linkedBusinessesCount++;
