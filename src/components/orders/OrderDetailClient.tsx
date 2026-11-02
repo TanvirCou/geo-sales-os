@@ -376,7 +376,7 @@ export default function OrderDetailClient({
                 ))}
               </tbody>
               <tfoot>
-                <tr className="bg-slate-50/90 dark:bg-slate-850 border-t-2 border-slate-200 dark:border-slate-800">
+                <tr className="bg-slate-50/90 dark:bg-slate-800/80 border-t-2 border-slate-200 dark:border-slate-800">
                   <td colSpan={4} className="px-5 py-4 text-right font-bold text-slate-700 dark:text-slate-200">
                     Grand Total:
                   </td>

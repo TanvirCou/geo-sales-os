@@ -19,6 +19,8 @@ import {
   Check,
   Eye,
   Filter,
+  Sparkles,
+  Truck,
 } from "lucide-react";
 import {
   previewAndGeocodeBatch,
@@ -76,60 +78,108 @@ export default function ImportManagerClient() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // ── Download Sample Excel Template ──────────────────────────────────────────
-  const downloadSampleTemplate = () => {
-    const sampleData = [
+  // ── Download Standard Excel Template ──────────────────────────────────────
+  const downloadStandardTemplate = () => {
+    const standardData = [
       {
         "Business Name": "Sultan's Dine",
         "Category": "Restaurant",
         "Phone Number": "01711223344",
-        "Address": "Dhanmondi, Dhaka",
-        "Status": "Delivered",
+        "Address": "Dhanmondi 27, Dhaka",
         "Total Amount": 4500,
+        "Status": "Delivered",
         "Date": "2026-10-25",
+        "Invoice": "INV-2026-001",
       },
       {
-        "Business Name": "Sultan's Dine",
-        "Category": "Restaurant",
-        "Phone Number": "01711223344",
-        "Address": "Dhanmondi, Dhaka",
-        "Status": "pending",
-        "Total Amount": 3200,
-        "Date": "2026-10-27",
-      },
-      {
-        "Business Name": "KFC",
+        "Business Name": "KFC Mirpur",
         "Category": "Fast Food",
         "Phone Number": "01822334455",
-        "Address": "Mirpur 10, Dhaka",
-        "Status": "cancelled",
+        "Address": "Mirpur 10 Circle, Dhaka",
         "Total Amount": 1800,
+        "Status": "Pending",
         "Date": "2026-10-26",
+        "Invoice": "INV-2026-002",
       },
       {
-        "Business Name": "Takeout",
+        "Business Name": "Takeout Banani",
         "Category": "Burger Shop",
         "Phone Number": "01933445566",
-        "Address": "Banani, Dhaka",
-        "Status": "Delivered",
+        "Address": "Road 11, Banani, Dhaka",
         "Total Amount": 2750,
+        "Status": "Delivered",
         "Date": "2026-10-27",
+        "Invoice": "INV-2026-003",
       },
       {
         "Business Name": "Bhai Bhai Enterprise",
-        "Category": "",
+        "Category": "Retail Store",
         "Phone Number": "01644556677",
         "Address": "Chawkbazar, Old Dhaka",
-        "Status": "Pending",
-        "Total Amount": "",
+        "Total Amount": 1200,
+        "Status": "Cancelled",
         "Date": "2026-10-28",
+        "Invoice": "INV-2026-004",
       },
     ];
 
-    const ws = XLSX.utils.json_to_sheet(sampleData);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Orders_Import_Sample");
-    XLSX.writeFile(wb, "orders_business_import_sample.xlsx");
+    const ws = XLSX.utils.json_to_sheet(standardData);
+    XLSX.utils.book_append_sheet(wb, ws, "Standard_Orders");
+    XLSX.writeFile(wb, "standard_order_import_template.xlsx");
+  };
+
+  // ── Download Steadfast Courier Excel Template ──────────────────────────────
+  const downloadSteadfastTemplate = () => {
+    const steadfastData = [
+      {
+        "Created At": "2026-10-25 12:30:00 pm",
+        "Order ID": "50034254",
+        "Tracking Code": "2FB764E48",
+        "Invoice": "INV-101",
+        "Recipient Name": "FOOD O'CLOCK",
+        "Recipient Phone": "01629351569",
+        "Recipient Address": "Gourango Bazar, Kishorganj",
+        "Delivery Status": "Delivered",
+        "Approval Status": "Delivered",
+        "COD Amount": 2870,
+        "COD Charge": 28.7,
+        "Payment Status": "Paid",
+      },
+      {
+        "Created At": "2026-10-26 02:15:00 pm",
+        "Order ID": "50034624",
+        "Tracking Code": "2FB77C008",
+        "Invoice": "N/A",
+        "Recipient Name": "MR. KEBAB",
+        "Recipient Phone": "01717271918",
+        "Recipient Address": "Bagadi, Chourasta Bazar, Chandpur",
+        "Delivery Status": "Delivered",
+        "Approval Status": "Delivered",
+        "COD Amount": 1530,
+        "COD Charge": 15.3,
+        "Payment Status": "Paid",
+      },
+      {
+        "Created At": "2026-10-27 10:45:00 am",
+        "Order ID": "50098293",
+        "Tracking Code": "2FB88D112",
+        "Invoice": "N/A",
+        "Recipient Name": "SOUDIA RESTAURANT",
+        "Recipient Phone": "01718037177",
+        "Recipient Address": "Ramganj Bazar, Lakshmipur",
+        "Delivery Status": "Pending",
+        "Approval Status": "Pending",
+        "COD Amount": 850,
+        "COD Charge": 8.5,
+        "Payment Status": "Unpaid",
+      },
+    ];
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(steadfastData);
+    XLSX.utils.book_append_sheet(wb, ws, "Steadfast_Export");
+    XLSX.writeFile(wb, "steadfast_courier_template.xlsx");
   };
 
   // ── Parse Excel File in Browser ─────────────────────────────────────────────
@@ -171,40 +221,189 @@ export default function ImportManagerClient() {
 
       const mappedRows: RawImportRow[] = rawJson.map((row, idx) => {
         let businessName = "";
+        let businessPriority = 0;
         let category = "";
         let location = "";
         let totalPrice: number | null = null;
         let phoneRaw = "";
         let date = "";
+        let datePriority = 0;
         let statusRaw = "pending";
+        let consignmentId = "";
+        let trackingCode = "";
+        let orderId = "";
+        let invoice = "";
+
+        let pricePriority = 0;
+        let statusPriority = 0;
 
         for (const [col, val] of Object.entries(row)) {
           const norm = normalizeKey(col);
           const strVal = String(val ?? "").trim();
+          if (!strVal || strVal === "null" || strVal === "undefined") continue;
 
-          if (norm.includes("business") || norm.includes("company") || norm.includes("client") || norm === "name") {
-            businessName = strVal;
+          const isChargeOrFee =
+            norm.includes("charge") ||
+            norm.includes("fee") ||
+            norm.includes("cost") ||
+            norm.includes("vat") ||
+            norm.includes("tax") ||
+            norm.includes("discount") ||
+            norm.includes("commission") ||
+            norm.includes("weight");
+
+          if (norm.includes("tracking") || norm === "track") {
+            trackingCode = strVal;
+          } else if (norm.includes("consignment") || norm === "cid") {
+            consignmentId = strVal;
+          } else if (norm.includes("orderid") || norm === "oid") {
+            orderId = strVal;
+          } else if (norm.includes("invoice") || norm === "inv") {
+            invoice = strVal;
+          } else if (
+            !norm.includes("rider") &&
+            (norm.includes("phone") ||
+             norm.includes("mobile") ||
+             norm.includes("contact") ||
+             (norm.includes("number") && !norm.includes("invoice") && !norm.includes("order")))
+          ) {
+            phoneRaw = strVal;
+          } else if (
+            norm.includes("address") ||
+            norm.includes("location") ||
+            norm.includes("area") ||
+            norm.includes("city") ||
+            norm.includes("destination") ||
+            norm.includes("thana") ||
+            norm.includes("district")
+          ) {
+            location = strVal;
+          } else if (
+            !isChargeOrFee &&
+            (norm.includes("amount") ||
+             norm.includes("price") ||
+             norm.includes("bill") ||
+             norm.includes("total") ||
+             norm.includes("cod") ||
+             norm.includes("collection") ||
+             norm.includes("payable"))
+          ) {
+            let currentPriority = 0;
+            if (
+              norm.includes("codamount") ||
+              norm.includes("collection") ||
+              norm.includes("totalamount") ||
+              norm.includes("totalprice") ||
+              norm.includes("orderamount") ||
+              norm.includes("itemtotal") ||
+              norm.includes("payable")
+            ) {
+              currentPriority = 3;
+            } else if (
+              norm === "cod" ||
+              norm.includes("orderprice") ||
+              (norm.includes("cod") && !norm.includes("charge") && !norm.includes("fee"))
+            ) {
+              currentPriority = 2;
+            } else {
+              currentPriority = 1;
+            }
+
+            if (currentPriority > pricePriority) {
+              const cleaned = strVal.replace(/[^0-9.]/g, "");
+              const parsed = cleaned && !isNaN(parseFloat(cleaned)) ? parseFloat(cleaned) : null;
+              if (parsed != null) {
+                totalPrice = parsed;
+                pricePriority = currentPriority;
+              }
+            }
+          } else if (
+            norm.includes("approvalstatus") ||
+            norm.includes("approval") ||
+            norm === "approval"
+          ) {
+            statusRaw = strVal;
+            statusPriority = 3;
+          } else if (
+            !norm.includes("payment") &&
+            (norm.includes("deliverystatus") ||
+             norm.includes("parcelstatus") ||
+             norm.includes("orderstatus") ||
+             norm === "status" ||
+             norm === "statue") &&
+            statusPriority < 2
+          ) {
+            statusRaw = strVal;
+            statusPriority = 2;
+          } else if (
+            norm.includes("status") &&
+            !norm.includes("payment") &&
+            statusPriority < 1
+          ) {
+            statusRaw = strVal;
+            statusPriority = 1;
+          } else if (
+            norm.includes("date") ||
+            norm.includes("time") ||
+            norm.includes("orderedat") ||
+            norm.includes("createdat")
+          ) {
+            let curDatePri = 1;
+            if (norm.includes("createdat") || norm.includes("orderdate") || norm.includes("orderedat")) {
+              curDatePri = 2;
+            }
+            if (curDatePri > datePriority && !norm.includes("deliverytime")) {
+              if (val instanceof Date && !isNaN(val.getTime())) {
+                date = val.toISOString();
+              } else {
+                date = strVal;
+              }
+              datePriority = curDatePri;
+            }
           } else if (norm.includes("category") || norm.includes("genre") || norm.includes("type")) {
             category = strVal;
-          } else if (norm.includes("address") || norm.includes("location") || norm.includes("area") || norm.includes("city")) {
-            location = strVal;
-          } else if (norm.includes("totalamount") || norm.includes("totalprice") || norm.includes("amount") || norm.includes("price") || norm.includes("total") || norm.includes("bill")) {
-            const cleaned = strVal.replace(/[^0-9.]/g, "");
-            totalPrice = cleaned && !isNaN(parseFloat(cleaned)) ? parseFloat(cleaned) : null;
-          } else if (norm.includes("phone") || norm.includes("mobile") || norm.includes("contact")) {
-            phoneRaw = strVal;
-          } else if (norm.includes("date") || norm.includes("time") || norm.includes("orderedat")) {
-            if (val instanceof Date && !isNaN(val.getTime())) {
-              date = val.toISOString();
-            } else if (strVal && strVal !== "null" && strVal !== "undefined") {
-              date = strVal;
-            } else {
-              date = "";
+          } else if (
+            !norm.includes("rider") &&
+            (norm.includes("business") ||
+             norm.includes("company") ||
+             norm.includes("client") ||
+             norm.includes("recipient") ||
+             norm.includes("customer") ||
+             norm.includes("consignee") ||
+             norm.includes("name") ||
+             norm === "shop")
+          ) {
+            let curNamePri = 1;
+            if (norm.includes("recipientname") || norm.includes("businessname") || norm.includes("customername")) {
+              curNamePri = 2;
             }
-          } else if (norm.includes("status") || norm.includes("statue") || norm.includes("payment")) {
-            statusRaw = strVal;
+            if (curNamePri > businessPriority) {
+              businessName = strVal;
+              businessPriority = curNamePri;
+            }
           }
         }
+
+        const isValid = (s: string) => {
+          if (!s) return false;
+          const str = s.trim().toLowerCase();
+          return (
+            str !== "" &&
+            str !== "n/a" &&
+            str !== "na" &&
+            str !== "-" &&
+            str !== "none" &&
+            str !== "null" &&
+            str !== "undefined"
+          );
+        };
+
+        const cleanInvoice = isValid(invoice) ? invoice.trim() : undefined;
+        const cleanOrderId = isValid(orderId) ? orderId.trim() : undefined;
+        const cleanTracking = isValid(trackingCode) ? trackingCode.trim() : undefined;
+        const cleanConsignment = isValid(consignmentId)
+          ? consignmentId.trim()
+          : (cleanOrderId || cleanTracking || undefined);
 
         return {
           rowId: `row_${idx + 1}`,
@@ -215,6 +414,10 @@ export default function ImportManagerClient() {
           phoneRaw,
           date,
           statusRaw,
+          consignmentId: cleanConsignment,
+          trackingCode: cleanTracking,
+          orderId: cleanOrderId,
+          invoice: cleanInvoice,
         };
       });
 
@@ -408,13 +611,25 @@ export default function ImportManagerClient() {
           </p>
         </div>
 
-        <button
-          onClick={downloadSampleTemplate}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all border border-slate-200 dark:border-slate-700 shadow-sm"
-        >
-          <Download className="w-4 h-4 text-blue-500" />
-          Download Sample Template (.xlsx)
-        </button>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            onClick={downloadSteadfastTemplate}
+            className="inline-flex items-center justify-center gap-2 px-3.5 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 text-blue-700 dark:text-blue-300 transition-all border border-blue-200 dark:border-blue-500/30 shadow-xs"
+            title="Download template matching Steadfast Courier export columns"
+          >
+            <Truck className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+            Steadfast Template (.xlsx)
+          </button>
+
+          <button
+            onClick={downloadStandardTemplate}
+            className="inline-flex items-center justify-center gap-2 px-3.5 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all border border-slate-200 dark:border-slate-700 shadow-xs"
+            title="Download standard order import template"
+          >
+            <Download className="w-4 h-4 text-slate-500" />
+            Standard Template (.xlsx)
+          </button>
+        </div>
       </div>
 
       {/* ── Success Banner After Commit ──────────────────────────────────── */}
@@ -578,54 +793,104 @@ export default function ImportManagerClient() {
           </p>
 
           {/* ── Required Columns Guide Card ─────────────────────────────── */}
-          <div className="mt-8 max-w-2xl mx-auto rounded-2xl bg-white/90 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 p-5 text-left shadow-sm">
-            <div className="flex items-center justify-between gap-2 pb-3 mb-3 border-b border-slate-100 dark:border-slate-700/60">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-2">
-                <FileSpreadsheet className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                Required Spreadsheet Columns:
-              </h4>
-              <span className="text-[11px] font-medium text-slate-400 dark:text-slate-400">
+          <div className="mt-8 max-w-3xl mx-auto rounded-3xl bg-white/95 dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-6 text-left shadow-xl shadow-slate-900/5 dark:shadow-black/40 backdrop-blur-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-4 mb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-amber-500" />
+                    Flexible Column Auto-Detection
+                  </h4>
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Accepts raw <strong className="text-slate-700 dark:text-slate-300">Steadfast Courier</strong> exports, <strong className="text-slate-700 dark:text-slate-300">Pathao / RedX</strong>, and custom Excel spreadsheets directly without renaming!
+                </p>
+              </div>
+
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-500/20 shrink-0">
+                <FileSpreadsheet className="w-3.5 h-3.5" />
                 Supports .xlsx, .xls, .csv
               </span>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs">
-              <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/70 dark:border-slate-800 space-y-0.5">
-                <span className="font-bold text-slate-900 dark:text-white block">1. Business Name</span>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">e.g. Sultan's Dine, KFC</p>
-              </div>
-
-              <div className="p-2.5 rounded-xl bg-purple-50/50 dark:bg-purple-950/20 border border-purple-200/60 dark:border-purple-900/40 space-y-0.5">
-                <span className="font-bold text-purple-900 dark:text-purple-200 block">2. Category (Optional)</span>
-                <p className="text-[11px] text-purple-600 dark:text-purple-300">e.g. Restaurant (default: General)</p>
-              </div>
-
-              <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/70 dark:border-slate-800 space-y-0.5">
-                <span className="font-bold text-slate-900 dark:text-white block">3. Phone Number</span>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">e.g. 01711223344</p>
-              </div>
-
-              <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/70 dark:border-slate-800 space-y-0.5">
-                <span className="font-bold text-slate-900 dark:text-white block">4. Address</span>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">e.g. Dhanmondi, Dhaka</p>
-              </div>
-
-              <div className="p-2.5 rounded-xl bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200/60 dark:border-blue-900/40 space-y-0.5">
-                <span className="font-bold text-blue-900 dark:text-blue-200 block">5. Status</span>
-                <p className="text-[10px] text-blue-700 dark:text-blue-300 font-mono">
-                  Pending, Delivered, Cancelled
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+              {/* Card 1: Customer / Business */}
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/70 dark:border-slate-700/70 space-y-1.5 transition-all hover:border-blue-300 dark:hover:border-blue-500">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-900 dark:text-slate-100">Customer / Business</span>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-500/30">Required</span>
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                  <strong className="text-slate-700 dark:text-slate-300">Accepts:</strong> Recipient Name, Business Name, Customer, Company, Client, Name
                 </p>
               </div>
 
-              <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/70 dark:border-slate-800 space-y-0.5">
-                <span className="font-bold text-slate-900 dark:text-white block">6. Total Amount (Optional)</span>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">e.g. 4500 (Leave blank if not available)</p>
+              {/* Card 2: Phone Number */}
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/70 dark:border-slate-700/70 space-y-1.5 transition-all hover:border-blue-300 dark:hover:border-blue-500">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-900 dark:text-slate-100">Phone / Mobile</span>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-500/30">Required</span>
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                  <strong className="text-slate-700 dark:text-slate-300">Accepts:</strong> Recipient Phone, Phone Number, Mobile, Contact
+                </p>
               </div>
 
-              <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/70 dark:border-slate-800 space-y-0.5">
-                <span className="font-bold text-slate-900 dark:text-white block">7. Date</span>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">e.g. 2026-10-25</p>
+              {/* Card 3: Address / Location */}
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/70 dark:border-slate-700/70 space-y-1.5 transition-all hover:border-blue-300 dark:hover:border-blue-500">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-900 dark:text-slate-100">Delivery Address</span>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-500/30">Geocoded</span>
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                  <strong className="text-slate-700 dark:text-slate-300">Accepts:</strong> Recipient Address, Address, Location, Area, Thana, District
+                </p>
               </div>
+
+              {/* Card 4: Order Value / COD */}
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/70 dark:border-slate-700/70 space-y-1.5 transition-all hover:border-blue-300 dark:hover:border-blue-500">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-900 dark:text-slate-100">Order Value (৳)</span>
+                  <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-300/60 dark:border-slate-600">Auto Filter</span>
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                  <strong className="text-slate-700 dark:text-slate-300">Accepts:</strong> COD Amount, Total Amount, Price, Collection (Excludes courier charges)
+                </p>
+              </div>
+
+              {/* Card 5: Status */}
+              <div className="p-3.5 rounded-2xl bg-emerald-50/60 dark:bg-emerald-500/10 border border-emerald-200/70 dark:border-emerald-500/20 space-y-1.5 transition-all hover:border-emerald-300 dark:hover:border-emerald-500/40">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-emerald-900 dark:text-emerald-300">Delivery Status</span>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-500/30">Smart Map</span>
+                </div>
+                <p className="text-[11px] text-emerald-700 dark:text-emerald-400/90 leading-relaxed">
+                  <strong className="text-emerald-900 dark:text-emerald-300">Accepts:</strong> Approval Status, Delivery Status, Status (Delivered, Pending, Cancelled, Partial)
+                </p>
+              </div>
+
+              {/* Card 6: Order Date */}
+              <div className="p-3.5 rounded-2xl bg-indigo-50/60 dark:bg-indigo-500/10 border border-indigo-200/70 dark:border-indigo-500/20 space-y-1.5 transition-all hover:border-indigo-300 dark:hover:border-indigo-500/40">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-indigo-950 dark:text-indigo-300">Order Date</span>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-500/30">Timeline & Charts</span>
+                </div>
+                <p className="text-[11px] text-indigo-800 dark:text-indigo-400/90 leading-relaxed">
+                  <strong className="text-indigo-950 dark:text-indigo-300">Accepts:</strong> Created At, Order Date, Date (Essential for sales trends & reports)
+                </p>
+              </div>
+            </div>
+
+            {/* Optional Identifiers Strip */}
+            <div className="mt-3.5 pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+              <div className="flex items-center gap-1.5">
+                <span className="font-semibold text-slate-700 dark:text-slate-300">Auto-detected Identifiers (Optional):</span>
+                <span>Order ID, Tracking Code, Invoice, Category</span>
+              </div>
+              <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-500/20">
+                Auto Linked
+              </span>
             </div>
           </div>
 
@@ -836,6 +1101,10 @@ export default function ImportManagerClient() {
                         ) : row.status === "CANCELLED" ? (
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20">
                             Cancelled
+                          </span>
+                        ) : row.status === "PARTIAL" ? (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-orange-50 dark:bg-orange-500/10 text-orange-700 dark:text-orange-400 border border-orange-200 dark:border-orange-500/20">
+                            Partial
                           </span>
                         ) : (
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20">

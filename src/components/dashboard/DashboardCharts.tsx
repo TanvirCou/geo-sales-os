@@ -159,8 +159,10 @@ export default function DashboardCharts({
     return `৳ ${num.toLocaleString("en-US")}`;
   };
 
-  const completedPct = statusBreakdown.find((s) => s.status === "COMPLETED")?.percentage ?? 96.2;
-  const topDistrict = districtSales[0] || { district: "Dhaka", percentage: 37.2, revenue: 3813012 };
+  const completedPct = totalOrders > 0
+    ? (statusBreakdown.find((s) => s.status === "COMPLETED")?.percentage ?? 0)
+    : 0;
+  const topDistrict = districtSales[0] || null;
 
   return (
     <div className="space-y-8 animate-fade-in">
@@ -256,14 +258,14 @@ export default function DashboardCharts({
           </div>
           <div className="mt-3">
             <div className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight truncate">
-              {topDistrict.district}
+              {topDistrict ? topDistrict.district : "None"}
             </div>
             <div className="mt-2 flex items-center justify-between text-xs">
               <span className="text-slate-500 dark:text-slate-400 font-mono">
-                {formatBDT(topDistrict.revenue)}
+                {topDistrict ? formatBDT(topDistrict.revenue) : "৳ 0"}
               </span>
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-500/20">
-                <span>{topDistrict.percentage}% Nat'l Share</span>
+                <span>{topDistrict ? topDistrict.percentage : 0}% Nat&apos;l Share</span>
               </span>
             </div>
           </div>
@@ -641,8 +643,20 @@ export default function DashboardCharts({
           </div>
 
           <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span>Primary Core: <strong className="text-slate-800 dark:text-slate-200">Dhaka &amp; Chattogram (48.4%)</strong></span>
-            <span className="text-[11px] font-medium text-indigo-600 dark:text-indigo-400">8 Active Territory Segments</span>
+            <span>
+              Primary Core:{" "}
+              <strong className="text-slate-800 dark:text-slate-200">
+                {districtSales.length > 0
+                  ? districtSales
+                      .slice(0, 2)
+                      .map((d) => `${d.district} (${d.percentage}%)`)
+                      .join(" & ")
+                  : "No territory sales yet"}
+              </strong>
+            </span>
+            <span className="text-[11px] font-medium text-indigo-600 dark:text-indigo-400">
+              {districtSales.length} Active Territory Segment{districtSales.length !== 1 ? "s" : ""}
+            </span>
           </div>
         </div>
 
@@ -769,8 +783,21 @@ export default function DashboardCharts({
           </div>
 
           <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span>Delivered fulfillment: <strong className="text-emerald-600 dark:text-emerald-400">{completedPct}%</strong></span>
-            <span className="text-emerald-600 dark:text-emerald-400 text-xs font-semibold">High Pipeline Health</span>
+            <span>
+              Delivered fulfillment:{" "}
+              <strong className="text-emerald-600 dark:text-emerald-400">
+                {completedPct}%
+              </strong>
+            </span>
+            <span
+              className={`text-xs font-semibold ${
+                totalOrders > 0
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : "text-slate-400 dark:text-slate-500"
+              }`}
+            >
+              {totalOrders > 0 ? "Pipeline Active" : "Awaiting Orders"}
+            </span>
           </div>
         </div>
       </div>

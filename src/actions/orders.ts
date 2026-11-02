@@ -174,6 +174,21 @@ export async function createOrder(data: OrderInput) {
     return { error: "At least one order line item is required." };
   }
 
+  const business = await db.business.findUnique({
+    where: { id: data.businessId },
+    select: { id: true, name: true, isActive: true },
+  });
+
+  if (!business) {
+    return { error: "Selected business not found." };
+  }
+
+  if (!business.isActive) {
+    return {
+      error: `Cannot record order: "${business.name}" is archived. Please restore the business first.`,
+    };
+  }
+
   try {
     const order = await db.$transaction(async (tx) => {
       const ord = await tx.order.create({

@@ -1,9 +1,12 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useToast } from "@/components/ui/Toast";
+import { restoreBusiness } from "@/actions/businesses";
 import RecordOrderModal, { BusinessOption, ProductOption } from "@/components/orders/RecordOrderModal";
-import { MapPin, Building2, Phone, User, Calendar, ExternalLink, Plus, ChevronDown, Map, Navigation, AlertCircle } from "lucide-react";
+import { MapPin, Building2, Phone, User, Calendar, ExternalLink, Plus, ChevronDown, Map, Navigation, AlertCircle, RotateCcw } from "lucide-react";
 
 interface OrderItemDisplay {
   id: string;
@@ -55,6 +58,21 @@ export default function BusinessDetailClient({
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
   const [isMapDropdownOpen, setIsMapDropdownOpen] = useState(false);
   const mapDropdownRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
+  const toast = useToast();
+  const [isPending, startTransition] = useTransition();
+
+  const handleRestore = () => {
+    startTransition(async () => {
+      const res = await restoreBusiness(business.id);
+      if (res?.error) {
+        toast.error(res.error);
+      } else {
+        toast.success(`"${business.name}" restored to active status.`);
+        router.refresh();
+      }
+    });
+  };
 
   // Close dropdown on click outside
   useEffect(() => {
@@ -98,7 +116,13 @@ export default function BusinessDetailClient({
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-3">
-              <span className="w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_12px_rgba(34,197,94,0.6)]" />
+              <span
+                className={`w-3 h-3 rounded-full ${
+                  business.isActive
+                    ? "bg-emerald-500 shadow-[0_0_12px_rgba(34,197,94,0.6)]"
+                    : "bg-slate-400 dark:bg-slate-500"
+                }`}
+              />
               <h1 className="text-2xl md:text-3xl font-bold text-slate-900 dark:text-slate-100">
                 {business.name}
               </h1>
@@ -126,14 +150,27 @@ export default function BusinessDetailClient({
           </div>
 
           <div className="flex items-center gap-2.5">
-            <button
-              type="button"
-              onClick={() => setIsOrderModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-semibold shadow-md shadow-blue-600/25 transition-all active:scale-95 cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>New Order</span>
-            </button>
+            {business.isActive ? (
+              <button
+                type="button"
+                onClick={() => setIsOrderModalOpen(true)}
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-semibold shadow-md shadow-blue-600/25 transition-all active:scale-95 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>New Order</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleRestore}
+                disabled={isPending}
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-semibold shadow-md shadow-emerald-600/25 transition-all active:scale-95 cursor-pointer disabled:opacity-60"
+                title="Restore this business to active directory to record orders"
+              >
+                <RotateCcw className={`w-4 h-4 ${isPending ? "animate-spin" : ""}`} />
+                <span>Restore Account</span>
+              </button>
+            )}
 
             {/* View on Map Dropdown */}
             <div className="relative" ref={mapDropdownRef}>
@@ -245,9 +282,21 @@ export default function BusinessDetailClient({
             <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
               Marker Status
             </span>
-            <p className="font-bold mt-1 text-sm text-emerald-600 dark:text-emerald-400">
-              🟢 GREEN (Client in Database)
-            </p>
+            {business.isActive ? (
+              <div className="flex items-center gap-2 mt-1">
+                <span className="w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] shrink-0" />
+                <span className="font-bold text-sm text-emerald-600 dark:text-emerald-400">
+                  GREEN (Active Client in Database)
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 mt-1">
+                <span className="w-3 h-3 rounded-full bg-slate-400 dark:bg-slate-500 ring-2 ring-slate-300 dark:ring-slate-600 shrink-0" />
+                <span className="font-bold text-sm text-slate-600 dark:text-slate-400">
+                  GREY (Archived — Inactive Account)
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -286,13 +335,11 @@ export default function BusinessDetailClient({
           <h2 className="text-lg md:text-xl font-bold text-slate-900 dark:text-slate-100">
             Order History ({business.orders.length})
           </h2>
-          <button
-            type="button"
-            onClick={() => setIsOrderModalOpen(true)}
-            className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
-          >
-            + Add New Order
-          </button>
+          {!business.isActive && (
+            <span className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 border border-amber-200/60 dark:border-amber-500/20 px-2.5 py-1 rounded-lg font-medium">
+              Archived (Restore account to add new orders)
+            </span>
+          )}
         </div>
 
         <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 shadow-sm">

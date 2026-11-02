@@ -16,6 +16,10 @@ export interface RawImportRow {
   phoneRaw: string;
   date: string;
   statusRaw: string;
+  consignmentId?: string;
+  trackingCode?: string;
+  orderId?: string;
+  invoice?: string;
 }
 
 export interface ResolvedImportRow {
@@ -38,6 +42,10 @@ export interface ResolvedImportRow {
   formattedAddress?: string;
   confidence?: number;
   businessDedupeKey: string;
+  consignmentId?: string;
+  trackingCode?: string;
+  orderId?: string;
+  invoice?: string;
 }
 
 export interface GeocodeResult {
@@ -325,9 +333,8 @@ export async function previewAndGeocodeBatch(rawRows: RawImportRow[]): Promise<{
     };
   }
 
-  // Pre-fetch all existing active businesses from DB to check for matches
+  // Pre-fetch all existing businesses from DB (both active and archived) to check for matches
   const existingBusinesses = await db.business.findMany({
-    where: { isActive: true },
     select: {
       id: true,
       name: true,
@@ -337,6 +344,7 @@ export async function previewAndGeocodeBatch(rawRows: RawImportRow[]): Promise<{
       latitude: true,
       longitude: true,
       externalPlaceId: true,
+      isActive: true,
     },
   });
 
@@ -366,14 +374,21 @@ export async function previewAndGeocodeBatch(rawRows: RawImportRow[]): Promise<{
     // cancelled / canceled -> OrderStatus.CANCELLED
     // pending / empty / anything else -> OrderStatus.PENDING
     let status: OrderStatus = OrderStatus.PENDING;
-    if (
+    if (rawStatus.includes("partial")) {
+      status = OrderStatus.PARTIAL;
+    } else if (
+      rawStatus.includes("cancel") ||
+      rawStatus.includes("reject") ||
+      rawStatus.includes("return")
+    ) {
+      status = OrderStatus.CANCELLED;
+    } else if (
+      rawStatus.includes("approve") ||
       rawStatus.includes("deliver") ||
       rawStatus.includes("complete") ||
       rawStatus === "paid"
     ) {
       status = OrderStatus.COMPLETED;
-    } else if (rawStatus.includes("cancel")) {
-      status = OrderStatus.CANCELLED;
     } else {
       status = OrderStatus.PENDING;
     }
@@ -455,6 +470,10 @@ export async function previewAndGeocodeBatch(rawRows: RawImportRow[]): Promise<{
       formattedAddress: cached.formattedAddress,
       confidence: cached.confidence,
       businessDedupeKey: dedupeKey,
+      consignmentId: raw.consignmentId,
+      trackingCode: raw.trackingCode,
+      orderId: raw.orderId,
+      invoice: raw.invoice,
     });
   }
 
@@ -496,9 +515,8 @@ export async function previewAndGeocodeChunk(
     };
   }
 
-  // Pre-fetch all existing active businesses from DB
+  // Pre-fetch all existing businesses from DB (both active and archived)
   const existingBusinesses = await db.business.findMany({
-    where: { isActive: true },
     select: {
       id: true,
       name: true,
@@ -508,6 +526,7 @@ export async function previewAndGeocodeChunk(
       latitude: true,
       longitude: true,
       externalPlaceId: true,
+      isActive: true,
     },
   });
 
@@ -522,14 +541,21 @@ export async function previewAndGeocodeChunk(
     const rawStatus = (raw.statusRaw || "").toLowerCase().trim();
 
     let status: OrderStatus = OrderStatus.PENDING;
-    if (
+    if (rawStatus.includes("partial")) {
+      status = OrderStatus.PARTIAL;
+    } else if (
+      rawStatus.includes("cancel") ||
+      rawStatus.includes("reject") ||
+      rawStatus.includes("return")
+    ) {
+      status = OrderStatus.CANCELLED;
+    } else if (
+      rawStatus.includes("approve") ||
       rawStatus.includes("deliver") ||
       rawStatus.includes("complete") ||
       rawStatus === "paid"
     ) {
       status = OrderStatus.COMPLETED;
-    } else if (rawStatus.includes("cancel")) {
-      status = OrderStatus.CANCELLED;
     } else {
       status = OrderStatus.PENDING;
     }
@@ -603,6 +629,10 @@ export async function previewAndGeocodeChunk(
       formattedAddress: cached.formattedAddress,
       confidence: cached.confidence,
       businessDedupeKey: dedupeKey,
+      consignmentId: raw.consignmentId,
+      trackingCode: raw.trackingCode,
+      orderId: raw.orderId,
+      invoice: raw.invoice,
     });
   }
 
@@ -713,6 +743,11 @@ export async function commitImportBatch(rows: ResolvedImportRow[]): Promise<{
               linkedBusinessesCount++;
             }
           } else {
+            // If matched business was archived, reactivate it now that new orders arrived!
+            await tx.business.updateMany({
+              where: { id: businessId, isActive: false },
+              data: { isActive: true },
+            });
             linkedBusinessesCount++;
           }
 
@@ -743,6 +778,22 @@ export async function commitImportBatch(rows: ResolvedImportRow[]): Promise<{
 
         // 2. Insert all orders linked to their respective business
         let importedOrdersCount = 0;
+        const usedExternalOrderIds = new Set<string>();
+
+        const isValidField = (s?: string | null) => {
+          if (!s) return false;
+          const str = s.trim().toLowerCase();
+          return (
+            str !== "" &&
+            str !== "n/a" &&
+            str !== "na" &&
+            str !== "-" &&
+            str !== "none" &&
+            str !== "null" &&
+            str !== "undefined"
+          );
+        };
+
         for (let idx = 0; idx < rows.length; idx++) {
           const row = rows[idx];
           const bId = resolvedBusinessIdMap.get(row.businessDedupeKey);
@@ -756,18 +807,67 @@ export async function commitImportBatch(rows: ResolvedImportRow[]): Promise<{
             }
           }
 
-          await tx.order.create({
-            data: {
+          const cleanInvoice = isValidField(row.invoice) ? row.invoice!.trim() : "";
+          const cleanOrderId = isValidField(row.orderId) ? row.orderId!.trim() : "";
+          const cleanTracking = isValidField(row.trackingCode) ? row.trackingCode!.trim() : "";
+          const cleanConsignment = isValidField(row.consignmentId) ? row.consignmentId!.trim() : "";
+
+          const source =
+            cleanConsignment || cleanTracking || cleanOrderId ? "steadfast" : "excel_import";
+
+          // Calculate guaranteed unique externalOrderId
+          let extId = "";
+          if (cleanInvoice && !usedExternalOrderIds.has(cleanInvoice)) {
+            extId = cleanInvoice;
+          } else if (cleanOrderId && !usedExternalOrderIds.has(cleanOrderId)) {
+            extId = cleanInvoice ? `${cleanInvoice}-${cleanOrderId}` : cleanOrderId;
+          } else if (cleanTracking && !usedExternalOrderIds.has(cleanTracking)) {
+            extId = cleanInvoice ? `${cleanInvoice}-${cleanTracking}` : cleanTracking;
+          } else if (cleanConsignment && !usedExternalOrderIds.has(cleanConsignment)) {
+            extId = cleanInvoice ? `${cleanInvoice}-${cleanConsignment}` : cleanConsignment;
+          } else {
+            const base = cleanInvoice || cleanOrderId || cleanTracking || cleanConsignment || "IMP";
+            extId = `${base}-${idx + 1}`;
+          }
+
+          while (usedExternalOrderIds.has(extId)) {
+            extId = `${extId}-${idx + 1}`;
+          }
+          usedExternalOrderIds.add(extId);
+
+          const priceDecimal =
+            row.totalPrice != null && !isNaN(Number(row.totalPrice)) && Number(row.totalPrice) > 0
+              ? new Prisma.Decimal(row.totalPrice)
+              : null;
+
+          await tx.order.upsert({
+            where: {
+              unique_source_order: {
+                source,
+                externalOrderId: extId,
+              },
+            },
+            update: {
               businessId: bId,
               orderedAt: parsedDate,
               status: row.status,
-              source: "excel_import",
               sourceStatusRaw: row.statusRaw || null,
-              externalOrderId: `IMP-${Date.now().toString().slice(-4)}-${idx + 1}`,
-              totalAmountBdt:
-                row.totalPrice != null && !isNaN(Number(row.totalPrice)) && Number(row.totalPrice) > 0
-                  ? new Prisma.Decimal(row.totalPrice)
-                  : null,
+              consignmentId: cleanConsignment || cleanOrderId || null,
+              trackingCode: cleanTracking || null,
+              codAmount: priceDecimal,
+              totalAmountBdt: priceDecimal,
+            },
+            create: {
+              businessId: bId,
+              orderedAt: parsedDate,
+              status: row.status,
+              source,
+              sourceStatusRaw: row.statusRaw || null,
+              consignmentId: cleanConsignment || cleanOrderId || null,
+              trackingCode: cleanTracking || null,
+              externalOrderId: extId,
+              codAmount: priceDecimal,
+              totalAmountBdt: priceDecimal,
             },
           });
           importedOrdersCount++;
@@ -780,7 +880,7 @@ export async function commitImportBatch(rows: ResolvedImportRow[]): Promise<{
         };
       },
       {
-        timeout: 30000, // 30s timeout for large batches
+        timeout: 120000, // 2 minutes timeout for large batches
       }
     );
 

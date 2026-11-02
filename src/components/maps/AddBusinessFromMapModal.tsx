@@ -51,7 +51,6 @@ export default function AddBusinessFromMapModal({
   const [formContact, setFormContact] = useState("");
   const [formLat, setFormLat] = useState(preset?.latitude?.toFixed(6) ?? "");
   const [formLng, setFormLng] = useState(preset?.longitude?.toFixed(6) ?? "");
-  const [formError, setFormError] = useState<string | null>(null);
 
   // Field-specific validation errors for inline display
   const [fieldErrors, setFieldErrors] = useState<{
@@ -81,7 +80,6 @@ export default function AddBusinessFromMapModal({
       setFormContact("");
       setFormLat(preset.latitude?.toFixed(6) ?? "");
       setFormLng(preset.longitude?.toFixed(6) ?? "");
-      setFormError(null);
       setFieldErrors({});
     }
   }, [preset]);
@@ -114,12 +112,10 @@ export default function AddBusinessFromMapModal({
 
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
-      setFormError(null);
       return;
     }
 
     setFieldErrors({});
-    setFormError(null);
 
     const payload: BusinessInput = {
       name: formName.trim(),
@@ -136,7 +132,6 @@ export default function AddBusinessFromMapModal({
     startTransition(async () => {
       const res = await createBusiness(payload);
       if (res?.error) {
-        setFormError(res.error);
         toast.error(res.error);
       } else {
         if (res?.restored) {
@@ -180,13 +175,6 @@ export default function AddBusinessFromMapModal({
             <strong>GPS Auto-detected:</strong> {formLat}, {formLng} — map pin will be placed immediately.
           </span>
         </div>
-
-        {/* Server Error Banner */}
-        {formError && (
-          <div className="mx-5 mt-3 p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 text-rose-700 dark:text-rose-300 text-xs font-medium">
-            {formError}
-          </div>
-        )}
 
         {/* Form Fields */}
         <div className="p-5 pt-4 space-y-3.5">

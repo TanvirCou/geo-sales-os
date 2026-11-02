@@ -134,6 +134,9 @@ model Order {
   source           String?
   sourceStatusRaw  String?     @map("source_status_raw")
   externalOrderId  String?     @map("external_order_id")
+  consignmentId    String?     @map("consignment_id")
+  trackingCode     String?     @map("tracking_code")
+  codAmount        Decimal?    @db.Decimal(14, 2) @map("cod_amount")
   totalAmountBdt   Decimal?    @db.Decimal(14, 2) @map("total_amount_bdt")
   createdAt        DateTime    @default(now()) @map("created_at")
   updatedAt        DateTime    @updatedAt @map("updated_at")
@@ -145,6 +148,8 @@ model Order {
   @@index([businessId])
   @@index([status])
   @@index([orderedAt])
+  @@index([consignmentId])
+  @@index([trackingCode])
   @@map("orders")
 }
 
@@ -168,19 +173,51 @@ model OrderItem {
 // ─── Import Jobs (Phase 7) ────────────────────────────────────────────────────
 
 model ImportBatch {
-  id          String   @id @default(uuid())
-  fileKey     String   @map("file_key")
-  checksum    String?
-  status      String   @default("pending")
-  columnMap   Json?    @map("column_map")
-  progress    Json?
-  errorLog    Json?    @map("error_log")
-  importedCount Int    @default(0) @map("imported_count")
-  duplicateCount Int   @default(0) @map("duplicate_count")
-  reviewCount Int      @default(0) @map("review_count")
-  failedCount Int      @default(0) @map("failed_count")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id             String   @id @default(uuid())
+  fileKey        String   @map("file_key")
+  checksum       String?
+  status         String   @default("pending")
+  columnMap      Json?    @map("column_map")
+  progress       Json?
+  errorLog       Json?    @map("error_log")
+  importedCount  Int      @default(0) @map("imported_count")
+  duplicateCount Int      @default(0) @map("duplicate_count")
+  reviewCount    Int      @default(0) @map("review_count")
+  failedCount    Int      @default(0) @map("failed_count")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
   @@map("import_batches")
+}
+
+// ─── Courier Integrations (Steadfast & Webhooks) ──────────────────────────────
+
+model CourierConfig {
+  id            String    @id @default(uuid())
+  provider      String    @unique @default("steadfast")
+  apiKey        String?   @map("api_key")
+  secretKey     String?   @map("secret_key")
+  webhookSecret String?   @map("webhook_secret")
+  isActive      Boolean   @default(false) @map("is_active")
+  balance       Decimal?  @db.Decimal(14, 2)
+  lastSyncedAt  DateTime? @map("last_synced_at")
+  lastTestedAt  DateTime? @map("last_tested_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@map("courier_configs")
+}
+
+model WebhookEvent {
+  id          String   @id @default(uuid())
+  provider    String   @default("steadfast")
+  eventType   String?  @map("event_type")
+  payload     Json
+  status      String   @default("processed") // processed, failed, ignored
+  error       String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([provider])
+  @@index([createdAt])
+  @@map("webhook_events")
 }

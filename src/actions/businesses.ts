@@ -179,7 +179,7 @@ export async function getBusiness(id: string) {
     latitude: business.latitude ? Number(business.latitude) : null,
     longitude: business.longitude ? Number(business.longitude) : null,
     orderCount: business._count.orders,
-    isGreen: true, // Since it is in our DB, it is a registered Client -> GREEN
+    isGreen: business.isActive, // Active registered client -> GREEN, Archived -> GREY
     orders: business.orders.map((o) => ({
       id: o.id,
       externalOrderId: o.externalOrderId,

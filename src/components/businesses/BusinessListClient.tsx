@@ -161,7 +161,6 @@ export default function BusinessListClient({
   const [formAddress, setFormAddress] = useState("");
   const [formLat, setFormLat] = useState("");
   const [formLng, setFormLng] = useState("");
-  const [formError, setFormError] = useState<string | null>(null);
 
   // Field-level validation errors (shows inline under the input)
   const [fieldErrors, setFieldErrors] = useState<{
@@ -360,7 +359,6 @@ export default function BusinessListClient({
     setFormMapQuery("");
     setFormLat("");
     setFormLng("");
-    setFormError(null);
     setFieldErrors({});
     setGeocodeFeedback(null);
     setAddressSuggestions([]);
@@ -380,7 +378,6 @@ export default function BusinessListClient({
     setFormMapQuery(b.address || "");
     setFormLat(b.latitude != null ? String(b.latitude) : "");
     setFormLng(b.longitude != null ? String(b.longitude) : "");
-    setFormError(null);
     setFieldErrors({});
     setGeocodeFeedback(null);
     setAddressSuggestions([]);
@@ -414,12 +411,10 @@ export default function BusinessListClient({
 
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
-      setFormError(null);
       return;
     }
 
     setFieldErrors({});
-    setFormError(null);
 
     const resolvedArea =
       formArea.trim() ||
@@ -442,7 +437,7 @@ export default function BusinessListClient({
       if (editingBusiness) {
         const res = await updateBusiness(editingBusiness.id, payload);
         if (res?.error) {
-          setFormError(res.error);
+          toast.error(res.error);
         } else {
           setIsModalOpen(false);
           toast.success(`"${formName}" updated successfully.`);
@@ -451,7 +446,7 @@ export default function BusinessListClient({
       } else {
         const res = await createBusiness(payload);
         if (res?.error) {
-          setFormError(res.error);
+          toast.error(res.error);
         } else {
           setIsModalOpen(false);
           if (res?.restored) {
@@ -779,12 +774,6 @@ export default function BusinessListClient({
                 <X className="w-5 h-5" />
               </button>
             </div>
-
-            {formError && (
-              <div className="p-3.5 rounded-lg bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 text-rose-700 dark:text-rose-300 text-sm">
-                {formError}
-              </div>
-            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Business Name (Required) */}

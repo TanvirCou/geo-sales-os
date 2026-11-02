@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useToast } from "@/components/ui/Toast";
 import { updateAdminName, changeAdminPin } from "@/actions/settings";
 import {
   createTeamMember,
@@ -10,9 +11,23 @@ import {
   TeamMemberItem,
 } from "@/actions/team";
 import { logoutAction } from "@/actions/auth";
+import {
+  saveCourierConfig,
+  saveSteadfastApiCredentials,
+  saveWebhookSettings,
+  disconnectSteadfastCourier,
+  testSteadfastConnection,
+  syncSteadfastOrders,
+  getRecentWebhookEvents,
+  CourierConfigDTO,
+  WebhookEventDTO,
+  WebhookEventsResponseDTO,
+} from "@/actions/courier";
+import { Pagination } from "@/components/ui/Pagination";
 import { ROLE_LABELS, CustomPermissions } from "@/lib/permissions";
 import {
   Shield,
+  ShieldCheck,
   User,
   Users,
   KeyRound,
@@ -31,6 +46,21 @@ import {
   Phone,
   Search,
   X,
+  Truck,
+  Copy,
+  RefreshCw,
+  Zap,
+  Wallet,
+  Activity,
+  ArrowUpRight,
+  Radio,
+  ExternalLink,
+  ShieldAlert,
+  Sparkles,
+  Clock,
+  Unplug,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
 interface CurrentUser {
@@ -44,15 +74,22 @@ interface CurrentUser {
 interface SettingsClientProps {
   currentUser: CurrentUser;
   initialTeamMembers: TeamMemberItem[];
+  initialCourierConfig?: CourierConfigDTO | null;
+  initialWebhookEventsData?: WebhookEventsResponseDTO;
+  initialWebhookEvents?: WebhookEventDTO[];
 }
 
 export default function SettingsClient({
   currentUser,
   initialTeamMembers,
+  initialCourierConfig,
+  initialWebhookEventsData,
+  initialWebhookEvents = [],
 }: SettingsClientProps) {
-  const [activeTab, setActiveTab] = useState<"profile" | "team">("profile");
+  const [activeTab, setActiveTab] = useState<"profile" | "team" | "courier">("profile");
 
   // ─── Profile & PIN Form States ─────────────────────────────────────────────
+  const toast = useToast();
   const [adminName, setAdminName] = useState(currentUser.name);
   const [nameInput, setNameInput] = useState(currentUser.name);
   const [currentPin, setCurrentPin] = useState("");
@@ -119,6 +156,232 @@ export default function SettingsClient({
   // Reset PIN Form State
   const [resetPinValue, setResetPinValue] = useState("");
   const [resetPinError, setResetPinError] = useState<string | null>(null);
+
+  // ─── Courier & Webhook States ─────────────────────────────────────────────
+  const [courierConfig, setCourierConfig] = useState<CourierConfigDTO | null>(initialCourierConfig || null);
+  const [apiKey, setApiKey] = useState(initialCourierConfig?.apiKey || "");
+  const [secretKey, setSecretKey] = useState(initialCourierConfig?.secretKey || "");
+  const [webhookSecret, setWebhookSecret] = useState(initialCourierConfig?.webhookSecret || "");
+  const [isCourierActive, setIsCourierActive] = useState(initialCourierConfig?.isActive ?? true);
+
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [showSecretKey, setShowSecretKey] = useState(false);
+  const [showWebhookSecret, setShowWebhookSecret] = useState(false);
+
+  const [isDisconnectModalOpen, setIsDisconnectModalOpen] = useState(false);
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
+
+  // ─── Courier Admin PIN Modal States ───────────────────────────────────────
+  const [courierPinModal, setCourierPinModal] = useState<{
+    isOpen: boolean;
+    mode: "API_CREDENTIALS" | "WEBHOOK_SETTINGS" | null;
+  }>({ isOpen: false, mode: null });
+  const [courierAdminPin, setCourierAdminPin] = useState("");
+  const [courierPinError, setCourierPinError] = useState<string | null>(null);
+  const [isCourierPinSubmitting, setIsCourierPinSubmitting] = useState(false);
+
+  const [isSyncingOrders, setIsSyncingOrders] = useState(false);
+  const [isWebhookLogsOpen, setIsWebhookLogsOpen] = useState(false);
+  const [isWebhookLogsLoading, setIsWebhookLogsLoading] = useState(false);
+
+  const [webhookEvents, setWebhookEvents] = useState<WebhookEventDTO[]>(
+    initialWebhookEventsData?.events || initialWebhookEvents || []
+  );
+  const [webhookTotal, setWebhookTotal] = useState(
+    initialWebhookEventsData?.total ?? initialWebhookEvents?.length ?? 0
+  );
+  const [webhookPage, setWebhookPage] = useState(initialWebhookEventsData?.page || 1);
+  const [webhookTotalPages, setWebhookTotalPages] = useState(
+    initialWebhookEventsData?.totalPages || 1
+  );
+  const [isWebhookCopied, setIsWebhookCopied] = useState(false);
+  const [showWebhookUrlToken, setShowWebhookUrlToken] = useState(false);
+
+  const getFullWebhookUrl = () => {
+    const origin = typeof window !== "undefined" ? window.location.origin : "https://yourdomain.com";
+    const base = `${origin}/api/webhooks/steadfast`;
+    if (webhookSecret && webhookSecret.trim()) {
+      return `${base}?token=${encodeURIComponent(webhookSecret.trim())}`;
+    }
+    return base;
+  };
+
+  const getDisplayWebhookUrl = () => {
+    const origin = typeof window !== "undefined" ? window.location.origin : "https://yourdomain.com";
+    const base = `${origin}/api/webhooks/steadfast`;
+    if (webhookSecret && webhookSecret.trim()) {
+      if (showWebhookUrlToken) {
+        return `${base}?token=${encodeURIComponent(webhookSecret.trim())}`;
+      }
+      return `${base}?token=••••••••`;
+    }
+    return base;
+  };
+
+  const handleCopyWebhookUrl = () => {
+    const url = getFullWebhookUrl();
+    navigator.clipboard.writeText(url);
+    setIsWebhookCopied(true);
+    toast.success("Webhook callback URL copied to clipboard!");
+    setTimeout(() => setIsWebhookCopied(false), 2500);
+  };
+
+  const handleConfirmDisconnect = async () => {
+    setIsDisconnecting(true);
+    try {
+      const res = await disconnectSteadfastCourier();
+      if (res.success) {
+        setApiKey("");
+        setSecretKey("");
+        setCourierConfig((prev) =>
+          prev
+            ? {
+                ...prev,
+                apiKey: "",
+                secretKey: "",
+                balance: null,
+                lastTestedAt: null,
+                isActive: false,
+              }
+            : null
+        );
+        setIsDisconnectModalOpen(false);
+        toast.success("Steadfast Courier disconnected and credentials removed.");
+      } else {
+        toast.error(res.error || "Failed to disconnect.");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "An error occurred while disconnecting.");
+    } finally {
+      setIsDisconnecting(false);
+    }
+  };
+
+  const handleOpenApiCredentialsPinModal = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!apiKey.trim() || !secretKey.trim()) {
+      toast.error("Please enter both Steadfast API Key and Secret Key.");
+      return;
+    }
+    setCourierAdminPin("");
+    setCourierPinError(null);
+    setCourierPinModal({ isOpen: true, mode: "API_CREDENTIALS" });
+  };
+
+  const handleOpenWebhookSettingsPinModal = (e: React.FormEvent) => {
+    e.preventDefault();
+    setCourierAdminPin("");
+    setCourierPinError(null);
+    setCourierPinModal({ isOpen: true, mode: "WEBHOOK_SETTINGS" });
+  };
+
+  const handleConfirmCourierPin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (courierAdminPin.trim().length !== 6) {
+      setCourierPinError("Please enter your 6-digit Admin PIN.");
+      return;
+    }
+
+    setIsCourierPinSubmitting(true);
+    setCourierPinError(null);
+
+    try {
+      if (courierPinModal.mode === "API_CREDENTIALS") {
+        const res = await saveSteadfastApiCredentials({
+          apiKey,
+          secretKey,
+          isActive: isCourierActive,
+          adminPin: courierAdminPin.trim(),
+        });
+
+        if (res.success && res.config) {
+          setCourierConfig(res.config);
+          setIsCourierActive(res.config.isActive);
+          setCourierPinModal({ isOpen: false, mode: null });
+          setCourierAdminPin("");
+          toast.success("Steadfast API credentials verified & saved successfully!");
+        } else {
+          setCourierPinError(res.error || "Incorrect Admin PIN.");
+          toast.error(res.error || "Failed to save API credentials.");
+        }
+      } else if (courierPinModal.mode === "WEBHOOK_SETTINGS") {
+        const res = await saveWebhookSettings({
+          webhookSecret,
+          isActive: isCourierActive,
+          adminPin: courierAdminPin.trim(),
+        });
+
+        if (res.success && res.config) {
+          setCourierConfig(res.config);
+          setIsCourierActive(res.config.isActive);
+          setCourierPinModal({ isOpen: false, mode: null });
+          setCourierAdminPin("");
+          toast.success("Webhook security settings verified & saved successfully!");
+        } else {
+          setCourierPinError(res.error || "Incorrect Admin PIN.");
+          toast.error(res.error || "Failed to save webhook settings.");
+        }
+      }
+    } catch (err: any) {
+      setCourierPinError(err.message || "An unexpected error occurred.");
+      toast.error(err.message || "Failed to save.");
+    } finally {
+      setIsCourierPinSubmitting(false);
+    }
+  };
+
+  const handleSyncOrders = async () => {
+    setIsSyncingOrders(true);
+
+    try {
+      const res = await syncSteadfastOrders();
+      if (res.success) {
+        toast.success(
+          `Sync completed! Checked ${res.checkedCount} pending order(s), updated ${res.updatedCount} order status(es).`
+        );
+        setCourierConfig((prev) =>
+          prev ? { ...prev, lastSyncedAt: res.lastSyncedAt || new Date().toISOString() } : prev
+        );
+      } else {
+        toast.error(res.error || "Failed to sync pending orders.");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Error running order sync.");
+    } finally {
+      setIsSyncingOrders(false);
+    }
+  };
+
+  const handleWebhookPageChange = async (newPage: number) => {
+    if (newPage < 1 || newPage > webhookTotalPages || newPage === webhookPage) return;
+    setIsWebhookLogsLoading(true);
+    try {
+      const res = await getRecentWebhookEvents(newPage, 5);
+      setWebhookEvents(res.events);
+      setWebhookPage(res.page);
+      setWebhookTotal(res.total);
+      setWebhookTotalPages(res.totalPages);
+    } catch (e) {
+      toast.error("Failed to load webhook logs.");
+    } finally {
+      setIsWebhookLogsLoading(false);
+    }
+  };
+
+  const handleRefreshEvents = async () => {
+    setIsWebhookLogsLoading(true);
+    try {
+      const res = await getRecentWebhookEvents(webhookPage, 5);
+      setWebhookEvents(res.events);
+      setWebhookTotal(res.total);
+      setWebhookTotalPages(res.totalPages);
+      toast.success("Webhook logs refreshed.");
+    } catch (e) {
+      toast.error("Failed to refresh webhook events.");
+    } finally {
+      setIsWebhookLogsLoading(false);
+    }
+  };
 
   // ─── Profile Handlers ─────────────────────────────────────────────────────
   const handleUpdateName = (e: React.FormEvent) => {
@@ -402,10 +665,10 @@ export default function SettingsClient({
   return (
     <div className="space-y-8 max-w-5xl">
       {/* ─── Top Navigation Tabs ────────────────────────────────────────── */}
-      <div className="flex border-b border-slate-200 dark:border-slate-800 gap-2 sm:gap-4 overflow-x-auto">
+      <div className="flex border-b border-slate-200 dark:border-slate-800 gap-1.5 sm:gap-4 overflow-x-auto scrollbar-none pb-0.5">
         <button
           onClick={() => setActiveTab("profile")}
-          className={`pb-3.5 px-3 sm:px-4 text-sm font-semibold border-b-2 transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+          className={`pb-3 px-2.5 sm:px-4 text-xs sm:text-sm font-semibold border-b-2 transition-all flex items-center gap-1.5 sm:gap-2 cursor-pointer whitespace-nowrap shrink-0 ${
             activeTab === "profile"
               ? "border-blue-600 text-blue-600 dark:text-blue-400"
               : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
@@ -418,17 +681,37 @@ export default function SettingsClient({
         {currentUser.role === "ADMIN" && (
           <button
             onClick={() => setActiveTab("team")}
-            className={`pb-3.5 px-3 sm:px-4 text-sm font-semibold border-b-2 transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+            className={`pb-3 px-2.5 sm:px-4 text-xs sm:text-sm font-semibold border-b-2 transition-all flex items-center gap-1.5 sm:gap-2 cursor-pointer whitespace-nowrap shrink-0 ${
               activeTab === "team"
                 ? "border-blue-600 text-blue-600 dark:text-blue-400"
                 : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
             }`}
           >
             <Users className="w-4 h-4" />
-            <span>Team & Role Management</span>
-            <span className="ml-1 px-2 py-0.5 rounded-full text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono">
+            <span>Team & Access</span>
+            <span className="ml-0.5 px-2 py-0.5 rounded-full text-[10px] sm:text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono">
               {teamMembers.length}
             </span>
+          </button>
+        )}
+
+        {currentUser.role === "ADMIN" && (
+          <button
+            onClick={() => setActiveTab("courier")}
+            className={`pb-3 px-2.5 sm:px-4 text-xs sm:text-sm font-semibold border-b-2 transition-all flex items-center gap-1.5 sm:gap-2 cursor-pointer whitespace-nowrap shrink-0 ${
+              activeTab === "courier"
+                ? "border-blue-600 text-blue-600 dark:text-blue-400"
+                : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
+            }`}
+          >
+            <Truck className="w-4 h-4" />
+            <span>Steadfast Courier</span>
+            {courierConfig?.isActive && courierConfig?.apiKey ? (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                Active
+              </span>
+            ) : null}
           </button>
         )}
       </div>
@@ -437,16 +720,16 @@ export default function SettingsClient({
       {/* TAB 1: PROFILE & SECURITY                                          */}
       {/* ═══════════════════════════════════════════════════════════════════ */}
       {activeTab === "profile" && (
-        <div className="space-y-8 animate-fade-in">
+        <div className="space-y-6 sm:space-y-8 animate-fade-in">
           {/* Profile Card */}
-          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-6">
+          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm space-y-5 sm:space-y-6">
             <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800 flex-wrap gap-4">
               <div className="flex items-center gap-3">
-                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-blue-600 to-blue-700 text-white flex items-center justify-center font-bold text-lg shadow-md shadow-blue-600/20">
+                <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-gradient-to-br from-blue-600 to-blue-700 text-white flex items-center justify-center font-bold text-base sm:text-lg shadow-md shadow-blue-600/20 shrink-0">
                   {adminName.slice(0, 1).toUpperCase()}
                 </div>
                 <div>
-                  <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2 flex-wrap">
                     <span>{adminName}</span>
                     <span
                       className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${
@@ -466,7 +749,7 @@ export default function SettingsClient({
 
             {nameFeedback && (
               <div
-                className={`p-3.5 rounded-xl text-xs sm:text-sm font-medium border flex items-center justify-between ${
+                className={`w-full sm:max-w-xl p-3.5 rounded-xl text-xs sm:text-sm font-medium border flex items-center justify-between ${
                   nameFeedback.type === "error"
                     ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/20 text-rose-700 dark:text-rose-300"
                     : "bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/20 text-emerald-700 dark:text-emerald-300"
@@ -482,8 +765,8 @@ export default function SettingsClient({
               </div>
             )}
 
-            <form onSubmit={handleUpdateName} className="space-y-4">
-              <div className="max-w-md space-y-1.5">
+            <form onSubmit={handleUpdateName} className="space-y-4 w-full sm:max-w-xl">
+              <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
                   Display Name
                 </label>
@@ -500,7 +783,7 @@ export default function SettingsClient({
                 <button
                   type="submit"
                   disabled={isNamePending || nameInput.trim() === adminName}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs sm:text-sm font-semibold shadow-sm shadow-blue-600/30 transition-colors duration-150 active:scale-95 disabled:opacity-50 cursor-pointer"
+                  className="w-full sm:w-auto px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs sm:text-sm font-semibold shadow-sm shadow-blue-600/30 transition-colors duration-150 active:scale-95 disabled:opacity-50 cursor-pointer justify-center flex items-center gap-2"
                 >
                   {isNamePending ? "Saving Name…" : "Save Name"}
                 </button>
@@ -509,9 +792,9 @@ export default function SettingsClient({
           </div>
 
           {/* Change PIN Card */}
-          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-6">
+          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm space-y-5 sm:space-y-6">
             <div className="flex items-center gap-3 pb-4 border-b border-slate-100 dark:border-slate-800">
-              <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold text-lg shadow-inner">
+              <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold text-lg shadow-inner shrink-0">
                 <KeyRound className="w-5 h-5" />
               </div>
               <div>
@@ -526,7 +809,7 @@ export default function SettingsClient({
 
             {pinFeedback && (
               <div
-                className={`p-3.5 rounded-xl text-xs sm:text-sm font-medium border flex items-center justify-between ${
+                className={`w-full sm:max-w-xl p-3.5 rounded-xl text-xs sm:text-sm font-medium border flex items-center justify-between ${
                   pinFeedback.type === "error"
                     ? "bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/20 text-rose-700 dark:text-rose-300"
                     : "bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/20 text-emerald-700 dark:text-emerald-300"
@@ -542,7 +825,7 @@ export default function SettingsClient({
               </div>
             )}
 
-            <form onSubmit={handleChangePin} className="space-y-4 max-w-md">
+            <form onSubmit={handleChangePin} className="space-y-4 w-full sm:max-w-xl">
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
                   Current PIN <span className="text-rose-500 font-bold ml-0.5">*</span>
@@ -616,7 +899,7 @@ export default function SettingsClient({
                 <button
                   type="submit"
                   disabled={isPinPending || newPin.length !== 6 || confirmPin.length !== 6}
-                  className="px-5 py-2.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs sm:text-sm font-semibold shadow-sm transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+                  className="w-full sm:w-auto px-5 py-2.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs sm:text-sm font-semibold shadow-sm transition-all active:scale-95 disabled:opacity-50 cursor-pointer justify-center flex items-center gap-2"
                 >
                   {isPinPending ? "Updating PIN…" : "Update PIN"}
                 </button>
@@ -625,8 +908,8 @@ export default function SettingsClient({
           </div>
 
           {/* Session & Sign Out Card */}
-          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-4">
-            <div className="flex items-center justify-between flex-wrap gap-4">
+          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
                   Active Session & Security
@@ -639,7 +922,7 @@ export default function SettingsClient({
               <button
                 onClick={handleLogout}
                 disabled={isLogoutPending}
-                className="px-4 py-2 border border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 rounded-xl text-xs sm:text-sm font-semibold hover:bg-rose-100 dark:hover:bg-rose-500/20 transition-all flex items-center gap-2 cursor-pointer active:scale-95"
+                className="w-full sm:w-auto justify-center px-4 py-2.5 border border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 rounded-xl text-xs sm:text-sm font-semibold hover:bg-rose-100 dark:hover:bg-rose-500/20 transition-all flex items-center gap-2 cursor-pointer active:scale-95"
               >
                 <span>🚪</span>
                 <span>{isLogoutPending ? "Signing Out…" : "Sign Out"}</span>
@@ -686,15 +969,15 @@ export default function SettingsClient({
           </div>
 
           {/* Action Bar: Search & Add Member */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-            <div className="flex items-center gap-2 flex-1 max-w-md">
-              <div className="relative flex-1">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 sm:p-4 shadow-sm">
+            <div className="flex items-center gap-2 flex-1 w-full sm:max-w-md">
+              <div className="relative flex-1 min-w-0">
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"
                   value={teamSearch}
                   onChange={(e) => setTeamSearch(e.target.value)}
-                  placeholder="Search team member by name or mobile..."
+                  placeholder="Search team member..."
                   className="w-full pl-9 pr-3.5 py-2 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
                 />
               </div>
@@ -702,7 +985,7 @@ export default function SettingsClient({
               <select
                 value={roleFilter}
                 onChange={(e) => setRoleFilter(e.target.value)}
-                className="px-3 py-2 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
+                className="px-2.5 sm:px-3 py-2 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer shrink-0"
               >
                 <option value="ALL">All Roles</option>
                 <option value="ADMIN">Admin</option>
@@ -714,7 +997,7 @@ export default function SettingsClient({
 
             <button
               onClick={openAddModal}
-              className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs sm:text-sm font-semibold shadow-sm transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer shrink-0"
+              className="w-full sm:w-auto px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs sm:text-sm font-semibold shadow-sm transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer shrink-0"
             >
               <Plus className="w-4 h-4" />
               <span>Add New Member</span>
@@ -849,6 +1132,560 @@ export default function SettingsClient({
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      {/* TAB 3: STEADFAST COURIER & WEBHOOK INTEGRATION (ADMIN ONLY)         */}
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      {activeTab === "courier" && currentUser.role === "ADMIN" && (
+        <div className="space-y-5 sm:space-y-6 animate-fade-in">
+          {/* 1. Header & Live Balance Overview Card */}
+          <div className="relative overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-gradient-to-br from-white via-slate-50/50 to-blue-50/30 dark:from-slate-900/90 dark:via-slate-900/60 dark:to-blue-950/20 p-4 sm:p-6 shadow-sm">
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 sm:gap-6">
+              <div className="flex items-start gap-3 sm:gap-4">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-lg shadow-blue-500/20 shrink-0">
+                  <Truck className="w-5 h-5 sm:w-6 sm:h-6" />
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="text-base sm:text-lg md:text-xl font-bold text-slate-900 dark:text-slate-100">
+                      Steadfast Courier Integration
+                    </h2>
+                    {courierConfig?.isActive && courierConfig?.apiKey ? (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 sm:py-1 rounded-full text-[11px] sm:text-xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                        Connected & Active
+                      </span>
+                    ) : courierConfig?.apiKey ? (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 sm:py-1 rounded-full text-[11px] sm:text-xs font-semibold bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30">
+                        <AlertTriangle className="w-3.5 h-3.5" />
+                        Paused
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 sm:py-1 rounded-full text-[11px] sm:text-xs font-semibold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                        Not Configured
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 max-w-xl">
+                    Connect your Steadfast Courier merchant account to receive real-time webhook status updates. Delivered orders will automatically transition to completed and turn green on map views.
+                  </p>
+                  {courierConfig?.apiKey && (
+                    <div className="flex items-center gap-2 pt-1.5 flex-wrap">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-white/80 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700 shadow-2xs">
+                        <Clock className="w-3.5 h-3.5 text-blue-500" />
+                        <span>Last Synced:</span>
+                        <strong className="font-mono text-slate-900 dark:text-slate-100">
+                          {courierConfig.lastSyncedAt
+                            ? new Date(courierConfig.lastSyncedAt).toLocaleString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                                year: "numeric",
+                                hour: "numeric",
+                                minute: "2-digit",
+                                second: "2-digit",
+                                hour12: true,
+                              })
+                            : "Never synced yet"}
+                        </strong>
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Disconnect Steadfast Button (shown when credentials exist) */}
+              {courierConfig?.apiKey && (
+                <div className="flex items-center w-full md:w-auto">
+                  <button
+                    type="button"
+                    onClick={() => setIsDisconnectModalOpen(true)}
+                    className="w-full md:w-auto justify-center px-4 py-2 bg-rose-50 hover:bg-rose-100 dark:bg-rose-500/10 dark:hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 cursor-pointer active:scale-95 shadow-sm"
+                  >
+                    <Unplug className="w-4 h-4" />
+                    <span>Disconnect</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* PART 1: Steadfast Merchant API Credentials */}
+          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm space-y-5 sm:space-y-6">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <KeyRound className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0" />
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100">
+                    Steadfast Merchant API Credentials
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    API Key & Secret Key for merchant balance verification and pending order tracking
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <form onSubmit={handleOpenApiCredentialsPinModal} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* API Key */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      Steadfast API Key <span className="text-rose-500 font-bold">*</span>
+                    </label>
+                    <span className="text-[11px] text-slate-400">Header: Api-Key</span>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type={showApiKey ? "text" : "password"}
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      placeholder="e.g. st_live_xxxxxxxxxxxxxxxx"
+                      className="w-full pl-3.5 pr-10 py-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm text-slate-900 dark:text-slate-100 font-mono placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                      title={showApiKey ? "Hide API Key" : "Show API Key"}
+                    >
+                      {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Secret Key */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      Steadfast Secret Key <span className="text-rose-500 font-bold">*</span>
+                    </label>
+                    <span className="text-[11px] text-slate-400">Header: Secret-Key</span>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type={showSecretKey ? "text" : "password"}
+                      value={secretKey}
+                      onChange={(e) => setSecretKey(e.target.value)}
+                      placeholder="e.g. sec_live_xxxxxxxxxxxxxxxx"
+                      className="w-full pl-3.5 pr-10 py-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm text-slate-900 dark:text-slate-100 font-mono placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowSecretKey(!showSecretKey)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                      title={showSecretKey ? "Hide Secret Key" : "Show Secret Key"}
+                    >
+                      {showSecretKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Toggle Active Switch */}
+              <div className="flex items-center justify-between p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 gap-3">
+                <div className="space-y-0.5">
+                  <span className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                    <Radio className={`w-3.5 h-3.5 shrink-0 ${isCourierActive ? "text-emerald-500" : "text-slate-400"}`} />
+                    Enable Live Status Sync & Webhooks
+                  </span>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    When active, courier updates and webhook events will automatically transition order statuses in your database.
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={isCourierActive}
+                    onChange={(e) => setIsCourierActive(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
+
+              {/* Step by step guide for API Credentials */}
+              <div className="p-3.5 sm:p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/60 text-xs text-slate-600 dark:text-slate-400 space-y-2">
+                <span className="font-semibold text-slate-800 dark:text-slate-200 block">
+                  How to get Steadfast API Key & Secret:
+                </span>
+                <ol className="list-decimal pl-4 space-y-1.5 leading-relaxed">
+                  <li>
+                    Log in to your Steadfast Merchant account at{" "}
+                    <a
+                      href="https://steadfast.com.bd/dashboard"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-blue-600 dark:text-blue-400 font-semibold underline underline-offset-2 hover:text-blue-500"
+                    >
+                      steadfast.com.bd/dashboard
+                    </a>
+                    .
+                  </li>
+                  <li>
+                    From the left sidebar menu, click on <strong className="text-slate-700 dark:text-slate-300">API</strong>.
+                  </li>
+                  <li>
+                    Click on <strong className="text-slate-700 dark:text-slate-300">Generate API Key & Secret</strong> (or view/copy your existing keys).
+                  </li>
+                  <li>
+                    Copy and paste your <strong className="text-slate-700 dark:text-slate-300">API Key</strong> and <strong className="text-slate-700 dark:text-slate-300">Secret Key</strong> into the fields above, keep sync enabled, and click <strong className="text-blue-600 dark:text-blue-400">Save Configuration</strong>.
+                  </li>
+                </ol>
+              </div>
+
+              {/* Form Action Buttons */}
+              <div className="pt-2 flex justify-end">
+                <button
+                  type="submit"
+                  disabled={!apiKey.trim() || !secretKey.trim()}
+                  className="w-full sm:w-auto justify-center px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs sm:text-sm font-semibold shadow-sm transition-all flex items-center gap-2 cursor-pointer active:scale-95 disabled:opacity-50"
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>Save Configuration</span>
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* PART 2: Webhook Authorization & Live Settings */}
+          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm space-y-5 sm:space-y-6">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800 flex-wrap gap-2">
+              <div className="flex items-center gap-2.5">
+                <Zap className="w-5 h-5 text-amber-500 shrink-0" />
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100">
+                    Webhook Authorization & Security
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Set an optional secret authorization token to verify incoming delivery status webhooks from Steadfast
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <form onSubmit={handleOpenWebhookSettingsPinModal} className="space-y-4">
+              {/* Webhook Secret Token (Optional) */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Webhook Authorization Token / Secret <span className="text-slate-400 font-normal">(Optional)</span>
+                  </label>
+                  <span className="text-[11px] text-slate-400">Header: Authorization Bearer / ?token=...</span>
+                </div>
+                <div className="relative">
+                  <input
+                    type={showWebhookSecret ? "text" : "password"}
+                    value={webhookSecret}
+                    onChange={(e) => setWebhookSecret(e.target.value)}
+                    placeholder="e.g. secret_token_xyz123 (Leave blank to accept all webhook calls)"
+                    className="w-full pl-3.5 pr-10 py-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm text-slate-900 dark:text-slate-100 font-mono placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowWebhookSecret(!showWebhookSecret)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                    title={showWebhookSecret ? "Hide Webhook Secret" : "Show Webhook Secret"}
+                  >
+                    {showWebhookSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  When defined, incoming webhook requests must provide this token to authenticate.
+                </p>
+              </div>
+
+              {/* Save Webhook Settings Button */}
+              <div className="flex justify-end pt-1">
+                <button
+                  type="submit"
+                  className="w-full sm:w-auto justify-center px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs sm:text-sm font-semibold shadow-sm transition-all flex items-center gap-2 cursor-pointer active:scale-95"
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>Save Configuration</span>
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* 3. Webhook Setup & Manual Sync Card */}
+          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm space-y-4 sm:space-y-5">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 flex-wrap gap-2">
+              <div className="flex items-center gap-2.5">
+                <Zap className="w-5 h-5 text-amber-500 shrink-0" />
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100">
+                    Webhook Callback URL & Live Listener
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Configure your Steadfast merchant dashboard to dispatch real-time parcel delivery webhooks
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Copyable Webhook URL Field */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Your Webhook Endpoint URL
+                </label>
+                {webhookSecret.trim() ? (
+                  <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-500/20">
+                    🔒 Secured with Token
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-slate-400">
+                    No token attached (open listener)
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                <div
+                  onCopy={(e) => {
+                    e.preventDefault();
+                    e.clipboardData.setData("text/plain", getFullWebhookUrl());
+                    setIsWebhookCopied(true);
+                    toast.success("Webhook callback URL copied to clipboard!");
+                    setTimeout(() => setIsWebhookCopied(false), 2500);
+                  }}
+                  className="relative flex-1 flex items-center bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 min-w-0"
+                >
+                  <div className="flex-1 text-xs sm:text-sm font-mono text-slate-800 dark:text-slate-200 truncate select-all">
+                    {getDisplayWebhookUrl()}
+                  </div>
+                  {webhookSecret.trim() && (
+                    <button
+                      type="button"
+                      onClick={() => setShowWebhookUrlToken(!showWebhookUrlToken)}
+                      className="ml-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer shrink-0 transition-colors"
+                      title={showWebhookUrlToken ? "Hide secret token in URL" : "Show secret token in URL"}
+                    >
+                      {showWebhookUrlToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCopyWebhookUrl}
+                  className="w-full sm:w-auto justify-center px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5 shrink-0 cursor-pointer active:scale-95 shadow-sm"
+                >
+                  {isWebhookCopied ? (
+                    <>
+                      <Check className="w-4 h-4 text-white" />
+                      <span>Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-4 h-4" />
+                      <span>Copy URL</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Step by step guide */}
+            <div className="p-3.5 sm:p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/60 text-xs text-slate-600 dark:text-slate-400 space-y-2">
+              <span className="font-semibold text-slate-800 dark:text-slate-200 block">
+                How to setup Webhook in Steadfast Portal:
+              </span>
+              <ol className="list-decimal pl-4 space-y-1.5 leading-relaxed">
+                <li>
+                  Log in to your Steadfast Merchant account at{" "}
+                  <a
+                    href="https://steadfast.com.bd/dashboard"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-blue-600 dark:text-blue-400 font-semibold underline underline-offset-2 hover:text-blue-500"
+                  >
+                    steadfast.com.bd/dashboard
+                  </a>
+                  .
+                </li>
+                <li>Go to <strong className="text-slate-700 dark:text-slate-300">Settings &gt; Webhook / API Integration</strong>.</li>
+                <li>Paste your Webhook URL copied above into the callback input.</li>
+                <li>When any parcel is marked as <strong className="text-emerald-600 dark:text-emerald-400">Delivered</strong>, GeoSales OS will automatically change the order to <strong className="text-emerald-600 dark:text-emerald-400">Completed</strong> and update the map pin to green in real time!</li>
+              </ol>
+            </div>
+
+            {/* Quick action: Manual Order Status Sync */}
+            <div className="pt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-slate-100 dark:border-slate-800">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                    Manual Order Status Sync
+                  </span>
+                  {courierConfig?.lastSyncedAt && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
+                      <Clock className="w-3 h-3" />
+                      <span>
+                        Last synced:{" "}
+                        <strong className="font-mono">
+                          {new Date(courierConfig.lastSyncedAt).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            second: "2-digit",
+                            hour12: true,
+                          })}
+                        </strong>
+                      </span>
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Query Steadfast servers to immediately check and update all pending delivery statuses in your database.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSyncOrders}
+                disabled={isSyncingOrders || !apiKey.trim()}
+                className="w-full sm:w-auto justify-center px-4 py-2.5 bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white rounded-xl text-xs sm:text-sm font-semibold shadow-sm transition-all flex items-center gap-2 cursor-pointer active:scale-95 disabled:opacity-40 shrink-0"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isSyncingOrders ? "animate-spin text-blue-400" : ""}`} />
+                <span>{isSyncingOrders ? "Syncing Orders…" : "Sync Pending Orders Now"}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* 4. Webhook Events Audit Trail (Collapsible) */}
+          <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden transition-all">
+            <button
+              type="button"
+              onClick={() => setIsWebhookLogsOpen(!isWebhookLogsOpen)}
+              className="w-full p-4 sm:p-6 flex items-center justify-between text-left hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors cursor-pointer gap-2"
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <Activity className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0" />
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100 truncate">
+                      Webhook Delivery History & Audit Log
+                    </h3>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                      {webhookTotal} {webhookTotal === 1 ? "Event" : "Events"}
+                    </span>
+                  </div>
+                  <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-1 sm:line-clamp-none">
+                    Diagnostic stream of live delivery notifications received from Steadfast Courier
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+                <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 flex items-center gap-1">
+                  <span className="hidden sm:inline">{isWebhookLogsOpen ? "Hide Logs" : "View Logs"}</span>
+                  {isWebhookLogsOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </span>
+              </div>
+            </button>
+
+            {isWebhookLogsOpen && (
+              <div className="px-5 pb-5 sm:px-6 sm:pb-6 pt-0 border-t border-slate-100 dark:border-slate-800/80 space-y-4">
+                <div className="flex items-center justify-between pt-3">
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                    Showing 5 events per page • Sorted by newest first
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleRefreshEvents}
+                    disabled={isWebhookLogsLoading}
+                    className="text-xs text-slate-600 hover:text-blue-600 dark:text-slate-300 dark:hover:text-blue-400 font-medium flex items-center gap-1.5 cursor-pointer transition-colors disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isWebhookLogsLoading ? "animate-spin text-blue-600" : ""}`} />
+                    <span>Refresh Stream</span>
+                  </button>
+                </div>
+
+                <div className={`overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 transition-opacity ${isWebhookLogsLoading ? "opacity-50 pointer-events-none" : ""}`}>
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 font-semibold text-slate-500 dark:text-slate-400">
+                        <th className="px-4 py-3 whitespace-nowrap">Time</th>
+                        <th className="px-4 py-3 whitespace-nowrap">Invoice / CID</th>
+                        <th className="px-4 py-3 whitespace-nowrap">Steadfast Status</th>
+                        <th className="px-4 py-3 whitespace-nowrap">Result</th>
+                        <th className="px-4 py-3 min-w-[200px]">Details</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                      {webhookEvents.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="text-center py-8 text-slate-400 dark:text-slate-500">
+                            No webhook events recorded yet. Once Steadfast sends status updates, they will appear here.
+                          </td>
+                        </tr>
+                      ) : (
+                        webhookEvents.map((ev) => (
+                          <tr key={ev.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
+                            <td className="px-4 py-3 text-slate-500 dark:text-slate-400 whitespace-nowrap font-mono text-[11px]">
+                              {new Date(ev.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}{" "}
+                              <span className="text-[10px] text-slate-400">({new Date(ev.createdAt).toLocaleDateString()})</span>
+                            </td>
+                            <td className="px-4 py-3 font-mono font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap">
+                              {ev.invoice || "—"}
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <span
+                                className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                                  (ev.status || ev.eventType || "").toLowerCase().includes("deliver")
+                                    ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300"
+                                    : (ev.status || ev.eventType || "").toLowerCase().includes("cancel") || (ev.status || ev.eventType || "").toLowerCase().includes("return")
+                                    ? "bg-rose-100 text-rose-800 dark:bg-rose-500/20 dark:text-rose-300"
+                                    : (ev.status || ev.eventType || "").toLowerCase().includes("partial")
+                                    ? "bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300"
+                                    : "bg-sky-100 text-sky-800 dark:bg-sky-500/20 dark:text-sky-300"
+                                }`}
+                              >
+                                {ev.status || ev.eventType || "status_update"}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <span
+                                className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                                  ev.resultStatus === "processed"
+                                    ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
+                                    : ev.resultStatus === "failed"
+                                    ? "bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400"
+                                    : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                                }`}
+                              >
+                                {ev.resultStatus}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-slate-500 dark:text-slate-400 text-[11px] truncate max-w-xs">
+                              {ev.error ? (
+                                <span className="text-rose-600 dark:text-rose-400 font-medium">{ev.error}</span>
+                              ) : (
+                                <span className="text-slate-400">Order status synchronized</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Pagination Controls */}
+                {webhookTotal > 5 && (
+                  <div className="pt-2">
+                    <Pagination
+                      currentPage={webhookPage}
+                      totalPages={webhookTotalPages}
+                      totalItems={webhookTotal}
+                      pageSize={5}
+                      onPageChange={handleWebhookPageChange}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1053,14 +1890,14 @@ export default function SettingsClient({
               )}
             </div>
 
-            <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-2">
+            <div className="pt-3 border-t border-slate-100 dark:border-slate-800 grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => {
                   setIsAddMemberOpen(false);
                   setEditingMember(null);
                 }}
-                className="px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                className="w-full justify-center px-4 py-2.5 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer text-center"
               >
                 Cancel
               </button>
@@ -1069,9 +1906,9 @@ export default function SettingsClient({
                 type="button"
                 onClick={handleSaveMember}
                 disabled={isMemberPending}
-                className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs sm:text-sm font-semibold shadow-sm transition-all disabled:opacity-50 cursor-pointer active:scale-95"
+                className="w-full justify-center px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs sm:text-sm font-semibold shadow-sm transition-all disabled:opacity-50 cursor-pointer active:scale-95 text-center"
               >
-                {isMemberPending ? "Saving Member…" : isAddMemberOpen ? "Create Member" : "Save Changes"}
+                {isMemberPending ? "Saving…" : isAddMemberOpen ? "Create Member" : "Save Changes"}
               </button>
             </div>
           </div>
@@ -1134,7 +1971,7 @@ export default function SettingsClient({
                 )}
               </div>
 
-              <div className="pt-2 flex justify-end gap-2">
+              <div className="pt-2 grid grid-cols-2 gap-2">
                 <button
                   type="button"
                   onClick={() => {
@@ -1142,7 +1979,7 @@ export default function SettingsClient({
                     setResetPinError(null);
                     setResetPinValue("");
                   }}
-                  className="px-3.5 py-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                  className="w-full justify-center px-3.5 py-2.5 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -1150,9 +1987,9 @@ export default function SettingsClient({
                 <button
                   type="submit"
                   disabled={isMemberPending}
-                  className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-semibold shadow-sm transition-all disabled:opacity-50 cursor-pointer active:scale-95"
+                  className="w-full justify-center px-4 py-2.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-semibold shadow-sm transition-all disabled:opacity-50 cursor-pointer active:scale-95"
                 >
-                  {isMemberPending ? "Resetting…" : "Confirm Reset PIN"}
+                  {isMemberPending ? "Resetting…" : "Confirm Reset"}
                 </button>
               </div>
             </form>
@@ -1179,11 +2016,11 @@ export default function SettingsClient({
               </p>
             </div>
 
-            <div className="pt-2 flex justify-center gap-2">
+            <div className="pt-2 grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => setDeletingMember(null)}
-                className="px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                className="w-full justify-center px-4 py-2.5 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
               >
                 Cancel
               </button>
@@ -1192,9 +2029,144 @@ export default function SettingsClient({
                 type="button"
                 onClick={handleDeleteMember}
                 disabled={isMemberPending}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-semibold shadow-sm transition-all disabled:opacity-50 cursor-pointer active:scale-95"
+                className="w-full justify-center px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-semibold shadow-sm transition-all disabled:opacity-50 cursor-pointer active:scale-95"
               >
                 {isMemberPending ? "Deleting…" : "Delete Member"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      {/* MODAL: COURIER SETTINGS ADMIN PIN CONFIRMATION                      */}
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      {courierPinModal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 sm:p-6 shadow-2xl space-y-4 text-slate-900 dark:text-slate-100">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+              <h3 className="text-base font-bold flex items-center gap-2 text-blue-600 dark:text-blue-400">
+                <KeyRound className="w-4 h-4" />
+                <span>Admin PIN Verification</span>
+              </h3>
+              <button
+                onClick={() => {
+                  setCourierPinModal({ isOpen: false, mode: null });
+                  setCourierAdminPin("");
+                  setCourierPinError(null);
+                }}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              {courierPinModal.mode === "API_CREDENTIALS"
+                ? "Enter your 6-digit Admin PIN to securely encrypt and save Steadfast API credentials."
+                : "Enter your 6-digit Admin PIN to update and save Webhook authorization settings."}
+            </p>
+
+            <form onSubmit={handleConfirmCourierPin} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Admin 6-Digit PIN <span className="text-rose-500 font-bold ml-0.5">*</span>
+                </label>
+                <input
+                  type="password"
+                  maxLength={6}
+                  autoFocus
+                  value={courierAdminPin}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/\D/g, "");
+                    setCourierAdminPin(val);
+                    if (courierPinError) setCourierPinError(null);
+                  }}
+                  placeholder="••••••"
+                  className={`w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl text-lg font-mono tracking-widest text-center font-bold focus:outline-none transition-colors ${
+                    courierPinError
+                      ? "border border-rose-500 bg-rose-50/20 dark:bg-rose-950/20 focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500"
+                      : "border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-blue-500/40"
+                  }`}
+                />
+                {courierPinError && (
+                  <p className="text-xs text-rose-500 font-medium mt-1 animate-fade-in flex items-center justify-center gap-1">
+                    <span>{courierPinError}</span>
+                  </p>
+                )}
+              </div>
+
+              <div className="pt-1 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCourierPinModal({ isOpen: false, mode: null });
+                    setCourierAdminPin("");
+                    setCourierPinError(null);
+                  }}
+                  className="w-full justify-center px-3.5 py-2.5 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={isCourierPinSubmitting || courierAdminPin.length !== 6}
+                  className="w-full justify-center px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 active:scale-95 shadow-md shadow-blue-600/25"
+                >
+                  {isCourierPinSubmitting ? (
+                    <>
+                      <RotateCcw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Verifying…</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Confirm & Save</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      {/* MODAL: DISCONNECT STEADFAST COURIER                                 */}
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      {isDisconnectModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 sm:p-6 shadow-2xl space-y-4 text-slate-900 dark:text-slate-100">
+            <div className="w-11 h-11 rounded-full bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center mx-auto">
+              <Unplug className="w-5 h-5" />
+            </div>
+
+            <div className="text-center space-y-1">
+              <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                Disconnect Steadfast Courier?
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Are you sure you want to disconnect? Your API Key and Secret Key will be permanently removed from the database.
+              </p>
+            </div>
+
+            <div className="pt-2 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setIsDisconnectModalOpen(false)}
+                className="w-full justify-center px-4 py-2.5 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={handleConfirmDisconnect}
+                disabled={isDisconnecting}
+                className="w-full justify-center px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-semibold shadow-sm transition-all disabled:opacity-50 cursor-pointer active:scale-95"
+              >
+                {isDisconnecting ? "Disconnecting…" : "Disconnect"}
               </button>
             </div>
           </div>
