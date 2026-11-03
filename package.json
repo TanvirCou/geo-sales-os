@@ -14,7 +14,8 @@
     "db:reset": "prisma migrate reset",
     "seed:admin": "node scripts/seed-admin.mjs",
     "seed:data": "node scripts/seed-data.mjs",
-    "hash-pin": "node scripts/hash-pin.mjs"
+    "hash-pin": "node scripts/hash-pin.mjs",
+    "clone:cloud": "node scripts/clone-to-cloud.mjs"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
