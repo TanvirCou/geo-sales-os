@@ -43,7 +43,7 @@ export default async function DashboardLayout({
         <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden bg-slate-50 dark:bg-slate-950">
           <TopNavbar />
           <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 pb-24 lg:pb-8 bg-slate-50 dark:bg-slate-950">
-            <div className="max-w-7xl mx-auto w-full">
+            <div className="w-full">
               {children}
             </div>
           </main>

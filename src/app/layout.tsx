@@ -11,12 +11,12 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: {
-    default: "GeoSales OS",
+    default: "GeoSales OS — Geospatial CRM & Sales Management",
     template: "%s | GeoSales OS",
   },
   description:
-    "GeoSales OS — Geospatial sales management and territory intelligence platform across Bangladesh.",
-  robots: { index: false, follow: false },
+    "Enterprise geospatial CRM and sales territory intelligence platform across Bangladesh with route planning, order tracking, and live executive analytics.",
+  robots: { index: true, follow: true },
 };
 
 export default function RootLayout({

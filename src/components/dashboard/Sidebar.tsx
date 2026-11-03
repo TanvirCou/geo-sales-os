@@ -160,7 +160,7 @@ export function DashboardSidebar({
       <nav className="flex-1 px-3 py-5 space-y-6 overflow-y-auto">
         {navSections.map((section) => (
           <div key={section.title} className="space-y-1">
-            <div className="px-3 mb-2 text-[10px] font-bold tracking-wider text-slate-400 dark:text-slate-500 uppercase">
+            <div className="px-3 mb-2 text-[10px] font-bold tracking-wider text-slate-500 dark:text-slate-400 uppercase">
               {section.title}
             </div>
             {section.items.map((item) => {

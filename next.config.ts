@@ -4,6 +4,10 @@ const nextConfig: NextConfig = {
   // Mark prisma/client as server-only so it's never bundled client-side
   serverExternalPackages: ["@prisma/client", "prisma"],
 
+  // Compression and security headers
+  compress: true,
+  poweredByHeader: false,
+
   // Strict mode for better React development
   reactStrictMode: true,
 

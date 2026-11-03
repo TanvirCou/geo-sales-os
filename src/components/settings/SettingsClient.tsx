@@ -123,6 +123,8 @@ export default function SettingsClient({
     setSyncLogs((prev) => [{ id: Math.random().toString(), time, text, type }, ...prev.slice(0, 19)]);
   };
 
+  const [showAuditLogs, setShowAuditLogs] = useState(false);
+
   const handleRefreshGeoStats = async () => {
     setIsRefreshingGeoStats(true);
     try {
@@ -783,7 +785,7 @@ export default function SettingsClient({
   };
 
   return (
-    <div className="space-y-8 max-w-5xl">
+    <div className="space-y-8 w-full">
       {/* ─── Top Navigation Tabs (Modern Responsive Segmented Control) ── */}
       <div className="relative">
         <div className="p-1 sm:p-1.5 bg-slate-100/90 dark:bg-slate-900/80 rounded-2xl border border-slate-200/80 dark:border-slate-800 backdrop-blur-md shadow-xs">
@@ -1906,11 +1908,15 @@ export default function SettingsClient({
                     </h2>
                     <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] sm:text-xs font-semibold bg-indigo-50 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/30">
                       <Layers className="w-3.5 h-3.5" />
-                      WGS84 Universal Standard
+                      WGS84 Universal Datum
+                    </span>
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] sm:text-xs font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      High Availability
                     </span>
                   </div>
                   <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 max-w-2xl leading-relaxed">
-                    GeoSales OS supports both <strong>Google Maps Official</strong> (Places Autocomplete, Maps JS, Directions) and <strong>OpenStreetMap / Geoapify</strong> (MapLibre GL Vector tiles). All business coordinates are preserved with zero data conflict.
+                    GeoSales OS preserves all store coordinates in standardized WGS84 format. Seamlessly switch primary mapping modes, monitor provider health &amp; latency, and synchronize nationwide pins on-demand.
                   </p>
                 </div>
               </div>
@@ -1919,17 +1925,19 @@ export default function SettingsClient({
               <div className="flex items-center gap-2 flex-wrap w-full md:w-auto">
                 <Link
                   href="/dashboard/map/google"
-                  className="px-3 py-2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 transition-all shadow-sm active:scale-95"
+                  className="px-3.5 py-2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 transition-all shadow-sm active:scale-95"
                 >
                   <Map className="w-3.5 h-3.5 text-blue-500" />
                   <span>Google Map</span>
+                  <ExternalLink className="w-3 h-3 text-slate-400 ml-0.5" />
                 </Link>
                 <Link
                   href="/dashboard/map/geoapify"
-                  className="px-3 py-2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 transition-all shadow-sm active:scale-95"
+                  className="px-3.5 py-2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 transition-all shadow-sm active:scale-95"
                 >
                   <Navigation className="w-3.5 h-3.5 text-emerald-500" />
                   <span>MapLibre OSM</span>
+                  <ExternalLink className="w-3 h-3 text-slate-400 ml-0.5" />
                 </Link>
                 <button
                   type="button"
@@ -1952,7 +1960,7 @@ export default function SettingsClient({
               <div className="text-2xl font-bold text-slate-900 dark:text-slate-100 font-mono mt-1">
                 {geoStats?.totalBusinesses ?? 0}
               </div>
-              <div className="text-[11px] text-slate-400 mt-1">Clients & verified stores</div>
+              <div className="text-[11px] text-slate-400 mt-1">Nationwide catalog</div>
             </div>
 
             {/* OSM / Geoapify Pin Verified */}
@@ -1966,7 +1974,7 @@ export default function SettingsClient({
               </div>
               <div className="text-[11px] text-slate-400 mt-1">
                 {geoStats && geoStats.totalBusinesses > 0
-                  ? `${Math.round((geoStats.osmLocatedCount / geoStats.totalBusinesses) * 100)}% coverage`
+                  ? `${Math.round((geoStats.osmLocatedCount / geoStats.totalBusinesses) * 100)}% verified`
                   : "0%"}
               </div>
             </div>
@@ -1990,7 +1998,7 @@ export default function SettingsClient({
             {/* Missing Google Pins */}
             <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-sm">
               <div className="flex items-center justify-between">
-                <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">Pending Google Sync</span>
+                <span className="text-xs text-indigo-600 dark:text-indigo-400 font-medium">Coordinate Parity</span>
                 {geoStats && geoStats.missingGoogleCount > 0 ? (
                   <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
                 ) : (
@@ -1998,147 +2006,101 @@ export default function SettingsClient({
                 )}
               </div>
               <div className="text-2xl font-bold text-slate-900 dark:text-slate-100 font-mono mt-1">
-                {geoStats?.missingGoogleCount ?? 0}
+                {geoStats?.missingGoogleCount === 0 ? "100%" : `${geoStats?.missingGoogleCount ?? 0} left`}
               </div>
               <div className="text-[11px] text-slate-400 mt-1">
-                {geoStats?.missingGoogleCount === 0 ? "100% Synchronized" : "Needs background sync"}
+                {geoStats?.missingGoogleCount === 0 ? "Fully Synchronized" : "Pending background sync"}
               </div>
             </div>
           </div>
 
-          {/* 3. API Key & Provider Configuration Status */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Google Maps API */}
-            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold">
-                    G
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                      Google Maps Platform API
-                    </h3>
-                    <p className="text-[11px] text-slate-400">
-                      Geocoding, Places Autocomplete &amp; Routes API
-                    </p>
-                  </div>
-                </div>
-                {geoStats?.googleKeyConfigured ? (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
-                    <Check className="w-3 h-3" />
-                    Configured
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20">
-                    <AlertTriangle className="w-3 h-3" />
-                    Missing in .env
-                  </span>
-                )}
-              </div>
-              <div className="text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800 font-mono">
-                GOOGLE_MAPS_SERVER_API_KEY
-              </div>
-            </div>
-
-            {/* Geoapify / OSM API */}
-            <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold">
-                    M
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                      Geoapify / OpenStreetMap
-                    </h3>
-                    <p className="text-[11px] text-slate-400">
-                      MapLibre GL Vector Tiles &amp; OSM Geocoder
-                    </p>
-                  </div>
-                </div>
-                {geoStats?.geoapifyKeyConfigured ? (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
-                    <Check className="w-3 h-3" />
-                    Configured
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20">
-                    <AlertTriangle className="w-3 h-3" />
-                    Fallback Key Active
-                  </span>
-                )}
-              </div>
-              <div className="text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800 font-mono">
-                GEOAPIFY_SERVER_API_KEY
-              </div>
-            </div>
-          </div>
-
-          {/* 4. One-Click Google Maps Pin Sync & Backfill Runner */}
+          {/* 3. Enterprise Google Maps Pin Sync & Coordinate Parity Engine */}
           <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm space-y-5">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-slate-100 dark:border-slate-800">
               <div className="flex items-center gap-2.5">
                 <RefreshCw className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0" />
                 <div>
                   <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100">
-                    Google Maps Pin Backfill &amp; Coordinate Sync Engine
+                    Coordinate Parity &amp; Dual-Fallback Engine
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Resolve official Google Place IDs and coordinates in batches with automatic OSM fallback.
+                    Ensures every single business is fully mapped with universal GPS coordinates across both engines.
                   </p>
                 </div>
               </div>
+
+              {geoStats?.missingGoogleCount === 0 && (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  100% Parity Achieved
+                </span>
+              )}
             </div>
 
+            {/* Parity explanation banner */}
             <div className="p-4 rounded-xl bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200/80 dark:border-blue-900/40 text-xs sm:text-sm text-slate-700 dark:text-slate-300 space-y-1.5 leading-relaxed">
               <p className="font-semibold text-blue-900 dark:text-blue-300 flex items-center gap-1.5">
                 <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                How the One-Click Sync Works:
+                Dual-Fallback Safety Mechanism:
               </p>
               <p>
-                1. The runner queries Google Maps Geocoding API chunk-by-chunk to find exact Google Place IDs and addresses.
+                1. The synchronizer queries the Google Maps Geocoding API chunk-by-chunk to resolve official Google Place IDs and addresses.
               </p>
               <p>
-                2. If Google cannot resolve a specific shop name or landmark, it automatically copies the pre-existing, verified OpenStreetMap coordinate to the Google pin.
+                2. If a store cannot be resolved via Google Geocoding, it automatically copies the verified OpenStreetMap coordinates.
               </p>
               <p>
-                3. This ensures <strong>100% pin coverage</strong> on Google Maps without wasting your Google Cloud quota or losing any data!
+                3. This guarantees <strong>100% pin coverage</strong> on Google Maps without wasting your Google Cloud quota or dropping any location data!
               </p>
             </div>
 
-            {/* Progress Bar */}
-            {geoStats && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  <span>Google Maps Pin Coverage</span>
-                  <span className="font-mono text-blue-600 dark:text-blue-400">
-                    {geoStats.totalBusinesses > 0
-                      ? `${Math.round((geoStats.googleLocatedCount / geoStats.totalBusinesses) * 100)}% (${geoStats.googleLocatedCount} / ${geoStats.totalBusinesses})`
-                      : "0%"}
+            {/* Verified Parity Banner when complete */}
+            {geoStats?.missingGoogleCount === 0 ? (
+              <div className="p-4 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 flex items-center gap-3">
+                <CheckCircle2 className="w-6 h-6 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <div className="text-xs sm:text-sm">
+                  <span className="font-bold text-emerald-900 dark:text-emerald-300 block">
+                    All {geoStats.totalBusinesses} Business Locations Fully Synchronized
+                  </span>
+                  <span className="text-emerald-700 dark:text-emerald-400 text-xs">
+                    Both Google Maps and MapLibre OSM engines have verified coordinates. Zero stores are missing map pins.
                   </span>
                 </div>
-                <div className="w-full h-3 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden border border-slate-200 dark:border-slate-700">
-                  <div
-                    className="h-full bg-linear-to-r from-blue-600 to-indigo-600 transition-all duration-300"
-                    style={{
-                      width: `${
-                        geoStats.totalBusinesses > 0
-                          ? Math.min(
-                              100,
-                              Math.round(
-                                (geoStats.googleLocatedCount / geoStats.totalBusinesses) * 100
-                              )
-                            )
-                          : 0
-                      }%`,
-                    }}
-                  />
-                </div>
               </div>
+            ) : (
+              /* Progress Bar when sync needed */
+              geoStats && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    <span>Google Maps Pin Coverage</span>
+                    <span className="font-mono text-blue-600 dark:text-blue-400">
+                      {geoStats.totalBusinesses > 0
+                        ? `${Math.round((geoStats.googleLocatedCount / geoStats.totalBusinesses) * 100)}% (${geoStats.googleLocatedCount} / ${geoStats.totalBusinesses})`
+                        : "0%"}
+                    </span>
+                  </div>
+                  <div className="w-full h-3 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden border border-slate-200 dark:border-slate-700">
+                    <div
+                      className="h-full bg-linear-to-r from-blue-600 to-indigo-600 transition-all duration-300"
+                      style={{
+                        width: `${
+                          geoStats.totalBusinesses > 0
+                            ? Math.min(
+                                100,
+                                Math.round(
+                                  (geoStats.googleLocatedCount / geoStats.totalBusinesses) * 100
+                                )
+                              )
+                            : 0
+                        }%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              )
             )}
 
-            {/* Runner Action Controls */}
+            {/* Synchronizer Action Controls */}
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2">
               <div className="flex items-center gap-2">
                 <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">Chunk Size:</span>
@@ -2148,9 +2110,9 @@ export default function SettingsClient({
                   onChange={(e) => setSyncChunkSize(Number(e.target.value))}
                   className="px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer disabled:opacity-50"
                 >
-                  <option value={5}>5 businesses / chunk</option>
-                  <option value={10}>10 businesses / chunk (Recommended)</option>
+                  <option value={10}>10 businesses / chunk (Optimal)</option>
                   <option value={20}>20 businesses / chunk</option>
+                  <option value={50}>50 businesses / chunk (High-Speed)</option>
                 </select>
               </div>
 
@@ -2174,7 +2136,7 @@ export default function SettingsClient({
                     <Play className="w-4 h-4 fill-white" />
                     <span>
                       {geoStats?.missingGoogleCount === 0
-                        ? "All Google Pins Synchronized"
+                        ? "All Pins Synchronized"
                         : isSyncPaused
                         ? "Resume Google Pin Sync"
                         : "Start Google Maps Pin Sync"}
@@ -2184,32 +2146,40 @@ export default function SettingsClient({
               </div>
             </div>
 
-            {/* Live Log Console */}
+            {/* Audit Log Drawer Toggle */}
             {syncLogs.length > 0 && (
               <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-                <span className="text-xs font-bold text-slate-600 dark:text-slate-400 block uppercase tracking-wider">
-                  Live Runner Activity Log
-                </span>
-                <div className="bg-slate-900 text-slate-200 rounded-xl p-3 text-xs font-mono max-h-48 overflow-y-auto space-y-1.5 border border-slate-800">
-                  {syncLogs.map((log) => (
-                    <div key={log.id} className="flex items-start gap-2">
-                      <span className="text-slate-500 shrink-0">[{log.time}]</span>
-                      <span
-                        className={
-                          log.type === "success"
-                            ? "text-emerald-400"
-                            : log.type === "warn"
-                            ? "text-amber-400"
-                            : log.type === "error"
-                            ? "text-rose-400"
-                            : "text-slate-300"
-                        }
-                      >
-                        {log.text}
-                      </span>
-                    </div>
-                  ))}
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAuditLogs(!showAuditLogs)}
+                  className="text-xs font-bold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <span>{showAuditLogs ? "Hide" : "View"} Synchronization Activity Log ({syncLogs.length} events)</span>
+                  {showAuditLogs ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                </button>
+
+                {showAuditLogs && (
+                  <div className="bg-slate-900 text-slate-200 rounded-xl p-3 text-xs font-mono max-h-52 overflow-y-auto space-y-1.5 border border-slate-800 animate-fade-in">
+                    {syncLogs.map((log) => (
+                      <div key={log.id} className="flex items-start gap-2">
+                        <span className="text-slate-500 shrink-0">[{log.time}]</span>
+                        <span
+                          className={
+                            log.type === "success"
+                              ? "text-emerald-400 font-medium"
+                              : log.type === "warn"
+                              ? "text-amber-400 font-medium"
+                              : log.type === "error"
+                              ? "text-rose-400 font-medium"
+                              : "text-slate-300"
+                          }
+                        >
+                          {log.text}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>

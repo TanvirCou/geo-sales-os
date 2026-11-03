@@ -2,7 +2,11 @@ import type { Metadata } from "next";
 import { getDashboardKPIs } from "@/actions/dashboard";
 import DashboardCharts from "@/components/dashboard/DashboardCharts";
 
-export const metadata: Metadata = { title: "Dashboard — GeoSales OS" };
+export const metadata: Metadata = {
+  title: "Dashboard — Sales & Geospatial Operations",
+  description:
+    "Real-time executive analytics, client network coverage, and territory sales intelligence across Bangladesh.",
+};
 
 export default async function DashboardPage() {
   const kpis = await getDashboardKPIs();

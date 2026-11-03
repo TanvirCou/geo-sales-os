@@ -731,7 +731,7 @@ export default function DashboardCharts({
                   <span className="text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight">
                     {totalOrders.toLocaleString("en-US")}
                   </span>
-                  <span className="text-[10px] font-semibold uppercase text-slate-400 tracking-wider">
+                  <span className="text-[10px] font-semibold uppercase text-slate-500 dark:text-slate-400 tracking-wider">
                     Total Orders
                   </span>
                 </div>
@@ -761,7 +761,7 @@ export default function DashboardCharts({
                           <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
                             {st.status}
                           </div>
-                          <div className="text-[11px] text-slate-400 font-mono">
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
                             ৳ {st.revenue.toLocaleString("en-US")}
                           </div>
                         </div>
@@ -771,7 +771,7 @@ export default function DashboardCharts({
                         <div className="text-xs font-bold text-slate-900 dark:text-white">
                           {st.count.toLocaleString("en-US")}
                         </div>
-                        <div className="text-[10px] font-semibold text-slate-400">
+                        <div className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
                           {st.percentage}%
                         </div>
                       </div>
@@ -816,7 +816,7 @@ export default function DashboardCharts({
         <div className="mt-4 overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
-              <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-400 dark:text-slate-500 uppercase tracking-wider font-semibold text-[10px]">
+              <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-600 dark:text-slate-400 uppercase tracking-wider font-semibold text-[10px]">
                 <th className="py-2.5 px-3">Rank</th>
                 <th className="py-2.5 px-3">District Territory</th>
                 <th className="py-2.5 px-3 text-right">Orders</th>
@@ -830,7 +830,7 @@ export default function DashboardCharts({
                   key={item.district}
                   className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors"
                 >
-                  <td className="py-3 px-3 font-bold text-slate-400">
+                  <td className="py-3 px-3 font-bold text-slate-500 dark:text-slate-400">
                     #{idx + 1}
                   </td>
                   <td className="py-3 px-3 font-semibold text-slate-900 dark:text-white">
