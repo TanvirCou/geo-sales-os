@@ -88,7 +88,11 @@ export const BANGLADESH_DISTRICTS: DistrictDefinition[] = [
   },
   {
     name: "Chandpur",
-    aliases: ["chandpur", "চাঁদপুর", "hizla", "chairmanghat", "matlab", "hajiganj"],
+    aliases: [
+      "chandpur", "চাঁদপুর", "kachua", "কচুয়া", "কচুয়া", "kochua", "faridganj",
+      "ফরিদগঞ্জ", "matlab", "মতলব", "hajiganj", "হাজীগঞ্জ", "shahrasti", "শাহরাস্তি",
+      "haimchar", "হাইমচর", "hizla", "chairmanghat"
+    ],
   },
   {
     name: "Feni",
@@ -170,29 +174,38 @@ export const BANGLADESH_DISTRICTS: DistrictDefinition[] = [
 
 /**
  * Automatically extracts the best matching Bangladesh district from address/location text.
- * Falls back to "Dhaka" if nothing matches.
+ * Strips division names (e.g. "Chattogram Division") so genuine district names are not overridden.
+ * Allows custom fallback (defaults to "Dhaka" or null when specified).
  */
-export function extractDistrictFromText(text?: string | null): string {
-  if (!text) return "Dhaka";
-  const lower = text.toLowerCase();
+export function extractDistrictFromText(
+  text?: string | null,
+  fallback: string | null = "Dhaka"
+): string | null {
+  if (!text) return fallback;
 
-  // 1. Check non-Dhaka districts first to avoid false-matching generic "Dhaka Division" strings
+  // 1. Strip administrative division names first (e.g. "Chattogram Division", "ঢাকা বিভাগ")
+  const cleaned = text
+    .replace(/\b[a-zA-Z]+\s+division\b/gi, " ")
+    .replace(/\S+\s*বিভাগ/g, " ")
+    .toLowerCase();
+
+  // 2. Check non-Dhaka districts first to avoid false-matching generic "Dhaka" strings
   for (const district of BANGLADESH_DISTRICTS) {
     if (district.name === "Dhaka") continue;
     for (const alias of district.aliases) {
-      if (lower.includes(alias)) {
+      if (cleaned.includes(alias.toLowerCase())) {
         return district.name;
       }
     }
   }
 
-  // 2. Check Dhaka aliases
+  // 3. Check Dhaka aliases
   const dhaka = BANGLADESH_DISTRICTS.find((d) => d.name === "Dhaka");
-  if (dhaka?.aliases.some((alias) => lower.includes(alias))) {
+  if (dhaka?.aliases.some((alias) => cleaned.includes(alias.toLowerCase()))) {
     return "Dhaka";
   }
 
-  return "Dhaka";
+  return fallback;
 }
 
 export const DISTRICT_COORDINATES: Record<string, { lat: number; lng: number }> = {

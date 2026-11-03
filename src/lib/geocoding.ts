@@ -22,17 +22,48 @@ export interface DualGeocodeResult {
 }
 
 // ── Common Stop Words & Term Extraction ──────────────────────────────────────
-const STOP_WORDS = new Set([
-  "road", "rd", "lane", "ln", "avenue", "ave", "street", "st", "sarani",
-  "house", "holding", "sector", "sec", "plot", "block", "bangladesh", "bd"
+const BENGALI_NOISE_WORDS = new Set([
+  "বিশ্বরোড", "হসপিটাল", "হাসপাতাল", "দক্ষিণ-পশ্চিম", "উত্তর-পশ্চিম", "উত্তর-পূর্ব", "দক্ষিণ-পূর্ব",
+  "দক্ষিণ", "উত্তর", "পূর্ব", "পশ্চিম", "পাশে", "নিকট", "সামনে", "পিছনে", "মোড়", "বাজার", "রোড", "রাস্তা",
+  "গলি", "দোকান", "হোল্ডিং", "সেক্টর", "প্লট", "বাড়ি", "বাড়ি", "ফ্লোর", "তলা", "পৌরসভা", "উপজেলা", "থানা"
 ]);
+
+const ENGLISH_NOISE_WORDS = new Set([
+  "road", "rd", "lane", "ln", "avenue", "ave", "street", "st", "sarani",
+  "house", "holding", "sector", "sec", "plot", "block", "near", "opp", "opposite", "beside",
+  "bangladesh", "bd"
+]);
+
+export function extractLocalityWords(text: string, detectedDistrict?: string | null): string[] {
+  const rawWords = (text || "")
+    .replace(/[,/\\()\-]/g, " ")
+    .split(/\s+/)
+    .map((w) => w.trim())
+    .filter(Boolean);
+
+  const distLower = (detectedDistrict || "").toLowerCase();
+  const meaningful: string[] = [];
+  const seen = new Set<string>();
+
+  for (const w of rawWords) {
+    const lower = w.toLowerCase();
+    if (BENGALI_NOISE_WORDS.has(lower) || ENGLISH_NOISE_WORDS.has(lower)) continue;
+    if (distLower && (distLower === lower || lower === "চাঁদপুর" || lower === "ঢাকা" || lower === "চট্টগ্রাম" || lower === "সিলেট" || lower === "রাজশাহী" || lower === "খুলনা" || lower === "বরিশাল" || lower === "রংপুর" || lower === "ময়মনসিংহ" || lower === "কুমিল্লা" || lower === "বগুড়া" || lower === "গাজীপুর" || lower === "নারায়ণগঞ্জ")) continue;
+    if (!seen.has(lower) && lower.length > 1) {
+      seen.add(lower);
+      meaningful.push(w);
+    }
+  }
+
+  return meaningful;
+}
 
 export function extractKeyTerms(text: string): string[] {
   return (text || "")
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/)
-    .filter((t) => t.length > 2 && !STOP_WORDS.has(t));
+    .filter((t) => t.length > 2 && !ENGLISH_NOISE_WORDS.has(t));
 }
 
 // ── 1. Geoapify (OpenStreetMap) Geocoder ──────────────────────────────────────
@@ -51,14 +82,8 @@ export async function geocodeGeoapify(
   try {
     const bName = (businessName || "").trim();
     const loc = (location || "").trim();
-    const locTerms = extractKeyTerms(loc);
     const nameTerms = extractKeyTerms(bName);
-    const detectedDistrict = extractDistrictFromText(loc);
-
-    const areaOnly = loc
-      .replace(/\b(road|rd|lane|ln|avenue|ave|street|st|sarani|house|holding|sector|sec|plot|block)\b/gi, "")
-      .replace(/\s+/g, " ")
-      .trim();
+    const detectedDistrict = extractDistrictFromText(loc, null);
 
     const makeUrl = (q: string, limit = 5) =>
       `https://api.geoapify.com/v1/geocode/autocomplete?text=${encodeURIComponent(
@@ -68,15 +93,15 @@ export async function geocodeGeoapify(
     // Phase 1: POI Search with business name
     if (bName) {
       const poiQueries = new Set<string>();
-      if (areaOnly && areaOnly.toLowerCase() !== loc.toLowerCase()) {
-        poiQueries.add(`${bName} ${areaOnly}`);
+      if (detectedDistrict) {
+        poiQueries.add(`${bName}, ${detectedDistrict}`);
       }
       poiQueries.add(`${bName} ${loc}`);
       poiQueries.add(bName);
 
       for (const q of poiQueries) {
         try {
-          const res = await fetch(makeUrl(q, 3), { cache: "no-store" });
+          const res = await fetch(makeUrl(q, 5), { cache: "no-store" });
           if (res.ok) {
             const data = await res.json();
             const features = data?.features || [];
@@ -85,8 +110,9 @@ export async function geocodeGeoapify(
               const [lon, lat] = feat.geometry?.coordinates || [];
               const placeName = (feat.properties?.name || "").toLowerCase();
               const formatted = feat.properties?.formatted || "";
-              const featDistrict = extractDistrictFromText(formatted);
+              const featDistrict = extractDistrictFromText(formatted, null);
 
+              // Strict district protection: never accept a POI from another district!
               if (detectedDistrict && featDistrict && featDistrict !== detectedDistrict) {
                 continue;
               }
@@ -111,24 +137,48 @@ export async function geocodeGeoapify(
       }
     }
 
-    // Phase 2: Locality / Area Fallback
-    const areaQueries = [loc, areaOnly, detectedDistrict].filter(Boolean) as string[];
+    // Phase 2: Locality / Area Fallback with Smart Bengali Cleaners
+    const localities = extractLocalityWords(loc, detectedDistrict);
+    const areaQueries: string[] = [];
+
+    if (localities.length > 0 && detectedDistrict) {
+      areaQueries.push(`${localities.join(" ")}, ${detectedDistrict}`);
+      if (localities.length > 1) {
+        areaQueries.push(`${localities[0]}, ${detectedDistrict}`);
+      }
+    }
+    if (detectedDistrict) {
+      areaQueries.push(`${detectedDistrict}, Bangladesh`);
+    }
+    if (loc) {
+      areaQueries.push(loc);
+    }
+
     for (const q of areaQueries) {
       try {
-        const res = await fetch(makeUrl(q, 3), { cache: "no-store" });
+        const res = await fetch(makeUrl(q, 5), { cache: "no-store" });
         if (res.ok) {
           const data = await res.json();
-          const first = data?.features?.[0];
-          if (first) {
-            const [lon, lat] = first.geometry?.coordinates || [];
+          const features = data?.features || [];
+
+          for (const feat of features) {
+            const [lon, lat] = feat.geometry?.coordinates || [];
+            const formatted = feat.properties?.formatted || "";
+            const featDistrict = extractDistrictFromText(formatted, null);
+
+            // Strict district protection on area matches as well
+            if (detectedDistrict && featDistrict && featDistrict !== detectedDistrict) {
+              continue;
+            }
+
             if (lat != null && lon != null) {
               return {
                 success: true,
-                placeId: first.properties?.place_id,
+                placeId: feat.properties?.place_id,
                 latitude: Number(lat),
                 longitude: Number(lon),
-                formattedAddress: first.properties?.formatted,
-                confidence: 0.6,
+                formattedAddress: formatted,
+                confidence: 0.7,
                 provider: "GEOAPIFY",
               };
             }
@@ -161,13 +211,14 @@ export async function geocodeGoogleMaps(
   try {
     const bName = (businessName || "").trim();
     const loc = (location || "").trim();
-    const detectedDistrict = extractDistrictFromText(loc);
+    const detectedDistrict = extractDistrictFromText(loc, null);
 
     const queries: string[] = [];
     if (bName && loc) queries.push(`${bName}, ${loc}, Bangladesh`);
     if (bName && detectedDistrict && detectedDistrict !== loc) queries.push(`${bName}, ${detectedDistrict}, Bangladesh`);
     if (loc) queries.push(`${loc}, Bangladesh`);
-    if (bName) queries.push(`${bName}, Bangladesh`);
+    if (detectedDistrict) queries.push(`${detectedDistrict}, Bangladesh`);
+    else if (bName) queries.push(`${bName}, Bangladesh`);
 
     for (const q of queries) {
       const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(
@@ -180,20 +231,26 @@ export async function geocodeGoogleMaps(
 
         const data = await res.json();
         if (data.status === "OK" && data.results && data.results.length > 0) {
-          const first = data.results[0];
-          const lat = first.geometry?.location?.lat;
-          const lng = first.geometry?.location?.lng;
+          for (const first of data.results) {
+            const featDistrict = extractDistrictFromText(first.formatted_address, null);
+            if (detectedDistrict && featDistrict && featDistrict !== detectedDistrict) {
+              continue;
+            }
 
-          if (lat != null && lng != null) {
-            return {
-              success: true,
-              placeId: first.place_id,
-              latitude: Number(lat),
-              longitude: Number(lng),
-              formattedAddress: first.formatted_address,
-              confidence: data.results.length === 1 ? 0.95 : 0.85,
-              provider: "GOOGLE",
-            };
+            const lat = first.geometry?.location?.lat;
+            const lng = first.geometry?.location?.lng;
+
+            if (lat != null && lng != null) {
+              return {
+                success: true,
+                placeId: first.place_id,
+                latitude: Number(lat),
+                longitude: Number(lng),
+                formattedAddress: first.formatted_address,
+                confidence: data.results.length === 1 ? 0.95 : 0.85,
+                provider: "GOOGLE",
+              };
+            }
           }
         } else if (data.status === "REQUEST_DENIED") {
           console.warn("Google Geocoding REQUEST_DENIED:", data.error_message);

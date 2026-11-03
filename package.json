@@ -15,7 +15,8 @@
     "seed:admin": "node scripts/seed-admin.mjs",
     "seed:data": "node scripts/seed-data.mjs",
     "hash-pin": "node scripts/hash-pin.mjs",
-    "clone:cloud": "node scripts/clone-to-cloud.mjs"
+    "clone:cloud": "node scripts/clone-to-cloud.mjs",
+    "fix:locations": "node --env-file=.env scripts/fix-mismatched-locations.mjs"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
