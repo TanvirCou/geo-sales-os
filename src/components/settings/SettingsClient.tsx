@@ -1711,12 +1711,16 @@ export default function SettingsClient({
               </ol>
             </div>
 
-            {/* Quick action: Manual Order Status Sync */}
+            {/* Quick action: Order Status Sync & Automated Cron */}
             <div className="pt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-slate-100 dark:border-slate-800">
               <div className="space-y-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-                    Manual Order Status Sync
+                    Order Status Synchronization
+                  </span>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-500/20">
+                    <Clock className="w-3 h-3 text-blue-500" />
+                    <span>Auto Cron: 5:00 PM &amp; 2:00 AM BST</span>
                   </span>
                   {courierConfig?.lastSyncedAt && (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
@@ -1736,7 +1740,7 @@ export default function SettingsClient({
                   )}
                 </div>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Query Steadfast servers to immediately check and update all pending delivery statuses in your database.
+                  Automated background sync runs twice daily (5:00 PM &amp; 2:00 AM BST). You can also click the button below to sync pending orders immediately.
                 </p>
               </div>
 

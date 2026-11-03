@@ -379,16 +379,14 @@ export async function testSteadfastConnection(
   }
 }
 
-// ── 4. Manual Sync of Pending Steadfast Orders ────────────────────────────────
-export async function syncSteadfastOrders(): Promise<{
+// ── 4. Core Sync of Pending Steadfast Orders (Shared by UI & Automated Cron) ──
+export async function executeSteadfastOrderSync(batchLimit: number = 50): Promise<{
   success: boolean;
   checkedCount: number;
   updatedCount: number;
   lastSyncedAt?: string;
   error?: string;
 }> {
-  await requireAuth();
-
   const config = await db.courierConfig.findUnique({
     where: { provider: "steadfast" },
   });
@@ -500,6 +498,20 @@ export async function syncSteadfastOrders(): Promise<{
     updatedCount,
     lastSyncedAt: syncTimestamp.toISOString(),
   };
+}
+
+/**
+ * UI Server Action: Requires user login session.
+ */
+export async function syncSteadfastOrders(): Promise<{
+  success: boolean;
+  checkedCount: number;
+  updatedCount: number;
+  lastSyncedAt?: string;
+  error?: string;
+}> {
+  await requireAuth();
+  return executeSteadfastOrderSync();
 }
 
 export interface WebhookEventsResponseDTO {
