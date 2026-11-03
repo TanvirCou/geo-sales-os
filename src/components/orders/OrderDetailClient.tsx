@@ -258,7 +258,7 @@ export default function OrderDetailClient({
         {/* 4-Column Key Info Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-5 border-t border-slate-100 dark:border-slate-800">
           <div>
-            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider block flex items-center gap-1">
+            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1">
               <Calendar className="w-3.5 h-3.5 text-blue-500" />
               <span>Order Date & Time</span>
             </span>
@@ -279,7 +279,7 @@ export default function OrderDetailClient({
           </div>
 
           <div>
-            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider block flex items-center gap-1">
+            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1">
               <Phone className="w-3.5 h-3.5 text-blue-500" />
               <span>Client Phone</span>
             </span>
@@ -289,7 +289,7 @@ export default function OrderDetailClient({
           </div>
 
           <div>
-            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider block flex items-center gap-1">
+            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1">
               <MapPin className="w-3.5 h-3.5 text-rose-500" />
               <span>GPS Coordinates</span>
             </span>

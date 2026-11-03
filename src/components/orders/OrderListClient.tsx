@@ -232,7 +232,7 @@ export default function OrderListClient({
       {/* Action / Search Bar */}
       <div className="bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-sm space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex-1 min-w-[240px]">
+          <div className="flex-1 min-w-60">
             <input
               type="text"
               placeholder="Search by order ID, business name, or area…"
@@ -288,13 +288,13 @@ export default function OrderListClient({
         <table className="w-full text-left border-collapse text-sm">
           <thead>
             <tr className="bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">
-              <th className="px-4 py-3.5 w-[130px] whitespace-nowrap">Order ID</th>
-              <th className="px-4 py-3.5 min-w-[180px]">Client Business</th>
-              <th className="px-4 py-3.5 min-w-[180px]">Area / District</th>
-              <th className="px-4 py-3.5 w-[120px] whitespace-nowrap">Status</th>
-              <th className="px-4 py-3.5 w-[150px] whitespace-nowrap">Items</th>
-              <th className="px-4 py-3.5 w-[140px] text-right whitespace-nowrap">Total (BDT)</th>
-              <th className="px-4 py-3.5 w-[120px] whitespace-nowrap">Date</th>
+              <th className="px-4 py-3.5 w-32.5 whitespace-nowrap">Order ID</th>
+              <th className="px-4 py-3.5 min-w-45">Client Business</th>
+              <th className="px-4 py-3.5 min-w-45">Area / District</th>
+              <th className="px-4 py-3.5 w-30 whitespace-nowrap">Status</th>
+              <th className="px-4 py-3.5 w-37.5 whitespace-nowrap">Items</th>
+              <th className="px-4 py-3.5 w-35 text-right whitespace-nowrap">Total (BDT)</th>
+              <th className="px-4 py-3.5 w-30 whitespace-nowrap">Date</th>
               <th className="px-4 py-3.5 w-16 text-right whitespace-nowrap">Actions</th>
             </tr>
           </thead>
@@ -316,7 +316,7 @@ export default function OrderListClient({
                       {o.externalOrderId || o.id.slice(0, 8)}
                     </Link>
                   </td>
-                  <td className="px-4 py-3.5 min-w-[180px]">
+                  <td className="px-4 py-3.5 min-w-45">
                     <Link
                       href={`/dashboard/businesses/${o.businessId}`}
                       className="font-medium text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
@@ -324,7 +324,7 @@ export default function OrderListClient({
                       {o.businessName}
                     </Link>
                   </td>
-                  <td className="px-4 py-3.5 text-slate-600 dark:text-slate-300 min-w-[180px]">{o.businessArea}</td>
+                  <td className="px-4 py-3.5 text-slate-600 dark:text-slate-300 min-w-45">{o.businessArea}</td>
                   <td className="px-4 py-3.5 whitespace-nowrap">
                     <span
                       className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium border ${

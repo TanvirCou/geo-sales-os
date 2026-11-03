@@ -104,12 +104,12 @@ export function TopNavbar() {
               {crumb.href ? (
                 <Link
                   href={crumb.href}
-                  className="text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors font-medium truncate max-w-[120px] sm:max-w-none"
+                  className="text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors font-medium truncate max-w-30 sm:max-w-none"
                 >
                   {crumb.label}
                 </Link>
               ) : (
-                <span className="text-slate-900 dark:text-slate-100 font-semibold truncate max-w-[140px] sm:max-w-xs md:max-w-md">
+                <span className="text-slate-900 dark:text-slate-100 font-semibold truncate max-w-35 sm:max-w-xs md:max-w-md">
                   {crumb.label}
                 </span>
               )}

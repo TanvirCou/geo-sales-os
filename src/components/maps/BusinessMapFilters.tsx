@@ -230,7 +230,7 @@ export default function BusinessMapFilters({
     <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-sm mb-4 space-y-3.5">
       <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
         {/* Name / Phone search with Autocomplete Dropdown - Dominant & Wide */}
-        <div ref={searchContainerRef} className="relative flex-1 min-w-[280px] sm:min-w-[340px] md:min-w-[400px]">
+        <div ref={searchContainerRef} className="relative flex-1 min-w-70 sm:min-w-85 md:min-w-100">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
             <input
@@ -262,7 +262,7 @@ export default function BusinessMapFilters({
 
           {/* Autocomplete Suggestions Dropdown */}
           {isDropdownOpen && filters.q.trim().length > 0 && (
-            <div className="absolute left-0 top-full mt-1.5 z-50 w-full min-w-full md:min-w-[460px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl overflow-hidden max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/80 animate-fade-in">
+            <div className="absolute left-0 top-full mt-1.5 z-50 w-full min-w-full md:min-w-115 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl overflow-hidden max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/80 animate-fade-in">
               <div className="px-3.5 py-2 bg-slate-50 dark:bg-slate-800/50 flex items-center justify-between text-[11px] font-semibold text-slate-500 dark:text-slate-400">
                 <span className="flex items-center gap-1.5">
                   Suggestions ({suggestions.length})
@@ -351,7 +351,7 @@ export default function BusinessMapFilters({
         <select
           value={filters.category}
           onChange={(e) => onChange({ ...filters, category: e.target.value })}
-          className={`w-full sm:w-[145px] shrink-0 ${selectBaseCls}`}
+          className={`w-full sm:w-36.25 shrink-0 ${selectBaseCls}`}
         >
           <option value="ALL">All Categories</option>
           {categories.map((c) => (
@@ -365,7 +365,7 @@ export default function BusinessMapFilters({
         <select
           value={filters.district}
           onChange={(e) => onChange({ ...filters, district: e.target.value, area: "ALL" })}
-          className={`w-full sm:w-[135px] shrink-0 ${selectBaseCls}`}
+          className={`w-full sm:w-33.75 shrink-0 ${selectBaseCls}`}
         >
           <option value="ALL">All Districts</option>
           {districts.map((d) => (
@@ -379,7 +379,7 @@ export default function BusinessMapFilters({
         <select
           value={filters.orderColor}
           onChange={(e) => onChange({ ...filters, orderColor: e.target.value as any })}
-          className={`w-full sm:w-[180px] shrink-0 ${selectBaseCls}`}
+          className={`w-full sm:w-45 shrink-0 ${selectBaseCls}`}
         >
           <option value="ALL">All Markers</option>
           <option value="GREEN">🟢 Clients</option>

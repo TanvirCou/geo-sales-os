@@ -566,7 +566,7 @@ export default function BusinessListClient({
       <div className="bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           {/* Search Input */}
-          <div className="flex-1 min-w-[240px]">
+          <div className="flex-1 min-w-60">
             <input
               type="text"
               placeholder="Search by name, phone, area, category…"
@@ -684,12 +684,12 @@ export default function BusinessListClient({
         <table className="w-full text-left border-collapse text-sm">
           <thead>
             <tr className="bg-slate-50 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">
-              <th className="px-4 py-3.5 min-w-[200px]">Business Name</th>
-              <th className="px-4 py-3.5 w-[110px] whitespace-nowrap">Category</th>
-              <th className="px-4 py-3.5 min-w-[240px]">Area / District</th>
-              <th className="px-4 py-3.5 w-[130px] whitespace-nowrap">Phone</th>
-              <th className="px-4 py-3.5 w-[150px] whitespace-nowrap">Location</th>
-              <th className="px-4 py-3.5 w-[100px] whitespace-nowrap">Orders</th>
+              <th className="px-4 py-3.5 min-w-50">Business Name</th>
+              <th className="px-4 py-3.5 w-27.5 whitespace-nowrap">Category</th>
+              <th className="px-4 py-3.5 min-w-60">Area / District</th>
+              <th className="px-4 py-3.5 w-32.5 whitespace-nowrap">Phone</th>
+              <th className="px-4 py-3.5 w-37.5 whitespace-nowrap">Location</th>
+              <th className="px-4 py-3.5 w-25 whitespace-nowrap">Orders</th>
               <th className="px-4 py-3.5 w-16 text-right whitespace-nowrap">Actions</th>
             </tr>
           </thead>
@@ -703,7 +703,7 @@ export default function BusinessListClient({
             ) : (
               paginatedBusinesses.map((b) => (
                 <tr key={b.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/30 transition-colors">
-                  <td className="px-4 py-3.5 min-w-[200px]">
+                  <td className="px-4 py-3.5 min-w-50">
                     <Link
                       href={`/dashboard/businesses/${b.id}`}
                       className="font-semibold text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 transition-colors block truncate"

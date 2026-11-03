@@ -37,7 +37,7 @@ export default function AccessDenied({
           {/* Animated Lock Shield Icon */}
           <div className="relative mx-auto w-20 h-20 flex items-center justify-center">
             <div className="absolute inset-0 bg-amber-500/20 dark:bg-amber-500/25 rounded-3xl blur-md animate-pulse" />
-            <div className="relative w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-500 to-rose-600 text-white flex items-center justify-center shadow-lg shadow-amber-500/30">
+            <div className="relative w-16 h-16 rounded-2xl bg-linear-to-br from-amber-500 to-rose-600 text-white flex items-center justify-center shadow-lg shadow-amber-500/30">
               <ShieldOff className="w-8 h-8" />
             </div>
           </div>

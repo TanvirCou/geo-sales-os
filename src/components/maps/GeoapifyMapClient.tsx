@@ -970,12 +970,12 @@ export default function GeoapifyMapClient({
       )}
 
       {/* Map + Sidebar Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-4 min-h-[520px]">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-4 min-h-130">
         {/* Map Canvas */}
-        <div className="relative rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 shadow-lg min-h-[440px] sm:min-h-[540px]">
+        <div className="relative rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 shadow-lg min-h-110 sm:min-h-135">
           <div
             ref={mapContainerRef}
-            className="w-full h-full min-h-[440px] sm:min-h-[540px] bg-slate-100 dark:bg-slate-900"
+            className="w-full h-full min-h-110 sm:min-h-135 bg-slate-100 dark:bg-slate-900"
           />
 
           {/* Floating Action Button: Scan Nearby Area */}

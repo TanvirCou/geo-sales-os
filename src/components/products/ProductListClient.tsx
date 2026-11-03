@@ -257,7 +257,7 @@ export default function ProductListClient({
       {/* Action / Search Bar */}
       <div className="bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-sm space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex-1 min-w-[240px]">
+          <div className="flex-1 min-w-60">
             <input
               type="text"
               placeholder="Search products by name or SKU…"
@@ -304,11 +304,11 @@ export default function ProductListClient({
         <table className="w-full text-left border-collapse text-sm">
           <thead>
             <tr className="bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">
-              <th className="px-5 py-3.5 min-w-[220px]">Product Name</th>
-              <th className="px-5 py-3.5 w-[140px] whitespace-nowrap">SKU</th>
-              <th className="px-5 py-3.5 w-[100px] whitespace-nowrap">Unit</th>
-              <th className="px-5 py-3.5 w-[120px] whitespace-nowrap">Status</th>
-              <th className="px-5 py-3.5 w-[180px] whitespace-nowrap">Referenced in Orders</th>
+              <th className="px-5 py-3.5 min-w-55">Product Name</th>
+              <th className="px-5 py-3.5 w-35 whitespace-nowrap">SKU</th>
+              <th className="px-5 py-3.5 w-25 whitespace-nowrap">Unit</th>
+              <th className="px-5 py-3.5 w-30 whitespace-nowrap">Status</th>
+              <th className="px-5 py-3.5 w-45 whitespace-nowrap">Referenced in Orders</th>
               <th className="px-5 py-3.5 w-16 text-right whitespace-nowrap">Actions</th>
             </tr>
           </thead>
@@ -322,7 +322,7 @@ export default function ProductListClient({
             ) : (
               paginatedProducts.map((p) => (
                 <tr key={p.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/30 transition-colors">
-                  <td className="px-5 py-3.5 font-semibold text-slate-900 dark:text-white min-w-[220px]">{p.name}</td>
+                  <td className="px-5 py-3.5 font-semibold text-slate-900 dark:text-white min-w-55">{p.name}</td>
                   <td className="px-5 py-3.5 whitespace-nowrap">
                     <code className="text-xs font-mono text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-500/20">
                       {p.sku || "—"}

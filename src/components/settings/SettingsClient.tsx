@@ -784,75 +784,133 @@ export default function SettingsClient({
 
   return (
     <div className="space-y-8 max-w-5xl">
-      {/* ─── Top Navigation Tabs ────────────────────────────────────────── */}
-      <div className="flex border-b border-slate-200 dark:border-slate-800 gap-1.5 sm:gap-4 overflow-x-auto scrollbar-none pb-0.5">
-        <button
-          onClick={() => setActiveTab("profile")}
-          className={`pb-3 px-2.5 sm:px-4 text-xs sm:text-sm font-semibold border-b-2 transition-all flex items-center gap-1.5 sm:gap-2 cursor-pointer whitespace-nowrap shrink-0 ${
-            activeTab === "profile"
-              ? "border-blue-600 text-blue-600 dark:text-blue-400"
-              : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
-          }`}
-        >
-          <User className="w-4 h-4" />
-          <span>Profile & Security</span>
-        </button>
-
-        {currentUser.role === "ADMIN" && (
-          <button
-            onClick={() => setActiveTab("team")}
-            className={`pb-3 px-2.5 sm:px-4 text-xs sm:text-sm font-semibold border-b-2 transition-all flex items-center gap-1.5 sm:gap-2 cursor-pointer whitespace-nowrap shrink-0 ${
-              activeTab === "team"
-                ? "border-blue-600 text-blue-600 dark:text-blue-400"
-                : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
-            }`}
-          >
-            <Users className="w-4 h-4" />
-            <span>Team & Access</span>
-            <span className="ml-0.5 px-2 py-0.5 rounded-full text-[10px] sm:text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono">
-              {teamMembers.length}
-            </span>
-          </button>
-        )}
-
-        {currentUser.role === "ADMIN" && (
-          <button
-            onClick={() => setActiveTab("courier")}
-            className={`pb-3 px-2.5 sm:px-4 text-xs sm:text-sm font-semibold border-b-2 transition-all flex items-center gap-1.5 sm:gap-2 cursor-pointer whitespace-nowrap shrink-0 ${
-              activeTab === "courier"
-                ? "border-blue-600 text-blue-600 dark:text-blue-400"
-                : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
-            }`}
-          >
-            <Truck className="w-4 h-4" />
-            <span>Steadfast Courier</span>
-            {courierConfig?.isActive && courierConfig?.apiKey ? (
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                Active
+      {/* ─── Top Navigation Tabs (Modern Responsive Segmented Control) ── */}
+      <div className="relative">
+        <div className="p-1 sm:p-1.5 bg-slate-100/90 dark:bg-slate-900/80 rounded-2xl border border-slate-200/80 dark:border-slate-800 backdrop-blur-md shadow-xs">
+          <div className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto scrollbar-none scroll-smooth snap-x snap-mandatory">
+            {/* Tab 1: Profile & Security */}
+            <button
+              type="button"
+              onClick={(e) => {
+                setActiveTab("profile");
+                e.currentTarget.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+              }}
+              className={`flex-1 min-w-max sm:min-w-0 py-2 sm:py-2.5 px-2.5 sm:px-4 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer snap-center select-none active:scale-[0.98] ${
+                activeTab === "profile"
+                  ? "bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm ring-1 ring-slate-900/5 dark:ring-white/10"
+                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/50 dark:hover:bg-slate-800/50"
+              }`}
+            >
+              <User
+                className={`w-4 h-4 shrink-0 transition-transform ${
+                  activeTab === "profile" ? "scale-105 text-blue-600 dark:text-blue-400" : "text-slate-400 dark:text-slate-500"
+                }`}
+              />
+              <span className="truncate">
+                <span className="sm:hidden">Profile</span>
+                <span className="hidden sm:inline">Profile & Security</span>
               </span>
-            ) : null}
-          </button>
-        )}
+            </button>
 
-        {currentUser.role === "ADMIN" && (
-          <button
-            onClick={() => setActiveTab("maps")}
-            className={`pb-3 px-2.5 sm:px-4 text-xs sm:text-sm font-semibold border-b-2 transition-all flex items-center gap-1.5 sm:gap-2 cursor-pointer whitespace-nowrap shrink-0 ${
-              activeTab === "maps"
-                ? "border-blue-600 text-blue-600 dark:text-blue-400"
-                : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
-            }`}
-          >
-            <Globe className="w-4 h-4" />
-            <span>Geospatial & Maps</span>
-            {geoStats && geoStats.missingGoogleCount > 0 ? (
-              <span className="ml-0.5 px-2 py-0.5 rounded-full text-[10px] sm:text-xs bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 font-mono">
-                {geoStats.missingGoogleCount}
-              </span>
-            ) : null}
-          </button>
-        )}
+            {/* Tab 2: Team & Access (Admin Only) */}
+            {currentUser.role === "ADMIN" && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  setActiveTab("team");
+                  e.currentTarget.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+                }}
+                className={`flex-1 min-w-max sm:min-w-0 py-2 sm:py-2.5 px-2.5 sm:px-4 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer snap-center select-none active:scale-[0.98] ${
+                  activeTab === "team"
+                    ? "bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm ring-1 ring-slate-900/5 dark:ring-white/10"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/50 dark:hover:bg-slate-800/50"
+                }`}
+              >
+                <Users
+                  className={`w-4 h-4 shrink-0 transition-transform ${
+                    activeTab === "team" ? "scale-105 text-blue-600 dark:text-blue-400" : "text-slate-400 dark:text-slate-500"
+                  }`}
+                />
+                <span className="truncate">
+                  <span className="sm:hidden">Team</span>
+                  <span className="hidden sm:inline">Team & Access</span>
+                </span>
+                <span
+                  className={`px-1.5 py-0.2 rounded-full text-[10px] sm:text-xs font-mono font-semibold ${
+                    activeTab === "team"
+                      ? "bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300"
+                      : "bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-400"
+                  }`}
+                >
+                  {teamMembers.length}
+                </span>
+              </button>
+            )}
+
+            {/* Tab 3: Steadfast Courier (Admin Only) */}
+            {currentUser.role === "ADMIN" && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  setActiveTab("courier");
+                  e.currentTarget.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+                }}
+                className={`flex-1 min-w-max sm:min-w-0 py-2 sm:py-2.5 px-2.5 sm:px-4 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer snap-center select-none active:scale-[0.98] ${
+                  activeTab === "courier"
+                    ? "bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm ring-1 ring-slate-900/5 dark:ring-white/10"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/50 dark:hover:bg-slate-800/50"
+                }`}
+              >
+                <Truck
+                  className={`w-4 h-4 shrink-0 transition-transform ${
+                    activeTab === "courier" ? "scale-105 text-blue-600 dark:text-blue-400" : "text-slate-400 dark:text-slate-500"
+                  }`}
+                />
+                <span className="truncate">
+                  <span className="sm:hidden">Courier</span>
+                  <span className="hidden sm:inline">Steadfast Courier</span>
+                </span>
+                {courierConfig?.isActive && courierConfig?.apiKey ? (
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="hidden md:inline">Active</span>
+                  </span>
+                ) : null}
+              </button>
+            )}
+
+            {/* Tab 4: Geospatial & Maps (Admin Only) */}
+            {currentUser.role === "ADMIN" && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  setActiveTab("maps");
+                  e.currentTarget.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+                }}
+                className={`flex-1 min-w-max sm:min-w-0 py-2 sm:py-2.5 px-2.5 sm:px-4 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer snap-center select-none active:scale-[0.98] ${
+                  activeTab === "maps"
+                    ? "bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm ring-1 ring-slate-900/5 dark:ring-white/10"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/50 dark:hover:bg-slate-800/50"
+                }`}
+              >
+                <Globe
+                  className={`w-4 h-4 shrink-0 transition-transform ${
+                    activeTab === "maps" ? "scale-105 text-blue-600 dark:text-blue-400" : "text-slate-400 dark:text-slate-500"
+                  }`}
+                />
+                <span className="truncate">
+                  <span className="sm:hidden">Maps</span>
+                  <span className="hidden sm:inline">Geospatial & Maps</span>
+                </span>
+                {geoStats && geoStats.missingGoogleCount > 0 ? (
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] sm:text-xs font-mono font-semibold bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300">
+                    {geoStats.missingGoogleCount}
+                  </span>
+                ) : null}
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* ═══════════════════════════════════════════════════════════════════ */}
@@ -864,7 +922,7 @@ export default function SettingsClient({
           <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm space-y-5 sm:space-y-6">
             <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800 flex-wrap gap-4">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-gradient-to-br from-blue-600 to-blue-700 text-white flex items-center justify-center font-bold text-base sm:text-lg shadow-md shadow-blue-600/20 shrink-0">
+                <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-linear-to-br from-blue-600 to-blue-700 text-white flex items-center justify-center font-bold text-base sm:text-lg shadow-md shadow-blue-600/20 shrink-0">
                   {adminName.slice(0, 1).toUpperCase()}
                 </div>
                 <div>
@@ -1148,10 +1206,10 @@ export default function SettingsClient({
             <table className="w-full text-left border-collapse text-sm">
               <thead>
                 <tr className="bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  <th className="px-5 py-3.5 min-w-[200px]">Member</th>
-                  <th className="px-5 py-3.5 w-[150px] whitespace-nowrap">Role</th>
-                  <th className="px-5 py-3.5 w-[130px] whitespace-nowrap">Status</th>
-                  <th className="px-5 py-3.5 w-[130px] whitespace-nowrap">Joined</th>
+                  <th className="px-5 py-3.5 min-w-50">Member</th>
+                  <th className="px-5 py-3.5 w-37.5 whitespace-nowrap">Role</th>
+                  <th className="px-5 py-3.5 w-32.5 whitespace-nowrap">Status</th>
+                  <th className="px-5 py-3.5 w-32.5 whitespace-nowrap">Joined</th>
                   <th className="px-5 py-3.5 w-24 text-right whitespace-nowrap">Actions</th>
                 </tr>
               </thead>
@@ -1281,10 +1339,10 @@ export default function SettingsClient({
       {activeTab === "courier" && currentUser.role === "ADMIN" && (
         <div className="space-y-5 sm:space-y-6 animate-fade-in">
           {/* 1. Header & Live Balance Overview Card */}
-          <div className="relative overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-gradient-to-br from-white via-slate-50/50 to-blue-50/30 dark:from-slate-900/90 dark:via-slate-900/60 dark:to-blue-950/20 p-4 sm:p-6 shadow-sm">
+          <div className="relative overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-linear-to-br from-white via-slate-50/50 to-blue-50/30 dark:from-slate-900/90 dark:via-slate-900/60 dark:to-blue-950/20 p-4 sm:p-6 shadow-sm">
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 sm:gap-6">
               <div className="flex items-start gap-3 sm:gap-4">
-                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-lg shadow-blue-500/20 shrink-0">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-linear-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-lg shadow-blue-500/20 shrink-0">
                   <Truck className="w-5 h-5 sm:w-6 sm:h-6" />
                 </div>
                 <div className="space-y-1">
@@ -1442,7 +1500,7 @@ export default function SettingsClient({
                     onChange={(e) => setIsCourierActive(e.target.checked)}
                     className="sr-only peer"
                   />
-                  <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-blue-600"></div>
+                  <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-blue-600"></div>
                 </label>
               </div>
 
@@ -1749,7 +1807,7 @@ export default function SettingsClient({
                         <th className="px-4 py-3 whitespace-nowrap">Invoice / CID</th>
                         <th className="px-4 py-3 whitespace-nowrap">Steadfast Status</th>
                         <th className="px-4 py-3 whitespace-nowrap">Result</th>
-                        <th className="px-4 py-3 min-w-[200px]">Details</th>
+                        <th className="px-4 py-3 min-w-50">Details</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
@@ -1835,10 +1893,10 @@ export default function SettingsClient({
       {activeTab === "maps" && currentUser.role === "ADMIN" && (
         <div className="space-y-6 animate-fade-in">
           {/* 1. Architecture Overview Banner */}
-          <div className="relative overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-gradient-to-br from-white via-slate-50/50 to-indigo-50/30 dark:from-slate-900/90 dark:via-slate-900/60 dark:to-indigo-950/20 p-4 sm:p-6 shadow-sm">
+          <div className="relative overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-linear-to-br from-white via-slate-50/50 to-indigo-50/30 dark:from-slate-900/90 dark:via-slate-900/60 dark:to-indigo-950/20 p-4 sm:p-6 shadow-sm">
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
               <div className="flex items-start gap-3 sm:gap-4">
-                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-gradient-to-tr from-indigo-600 to-blue-600 text-white flex items-center justify-center shadow-lg shadow-indigo-500/20 shrink-0">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-linear-to-tr from-indigo-600 to-blue-600 text-white flex items-center justify-center shadow-lg shadow-indigo-500/20 shrink-0">
                   <Globe className="w-5 h-5 sm:w-6 sm:h-6" />
                 </div>
                 <div className="space-y-1">
@@ -2062,7 +2120,7 @@ export default function SettingsClient({
                 </div>
                 <div className="w-full h-3 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden border border-slate-200 dark:border-slate-700">
                   <div
-                    className="h-full bg-gradient-to-r from-blue-600 to-indigo-600 transition-all duration-300"
+                    className="h-full bg-linear-to-r from-blue-600 to-indigo-600 transition-all duration-300"
                     style={{
                       width: `${
                         geoStats.totalBusinesses > 0
@@ -2426,7 +2484,7 @@ export default function SettingsClient({
                   }}
                   placeholder="e.g. 654321"
                   autoFocus
-                  className={`w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl text-sm font-mono tracking-widest text-center text-lg font-bold focus:outline-none transition-colors ${
+                  className={`w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl font-mono tracking-widest text-center text-lg font-bold focus:outline-none transition-colors ${
                     resetPinError
                       ? "border border-rose-500 bg-rose-50/20 dark:bg-rose-950/20 focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500"
                       : "border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-amber-500/40"
@@ -2580,7 +2638,7 @@ export default function SettingsClient({
                 <button
                   type="submit"
                   disabled={isCourierPinSubmitting || courierAdminPin.length !== 6}
-                  className="w-full justify-center px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 active:scale-95 shadow-md shadow-blue-600/25"
+                  className="w-full px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 active:scale-95 shadow-md shadow-blue-600/25"
                 >
                   {isCourierPinSubmitting ? (
                     <>

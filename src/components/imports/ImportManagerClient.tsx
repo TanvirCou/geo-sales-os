@@ -721,7 +721,7 @@ export default function ImportManagerClient() {
 
       {/* ── Progress Card (Shown while parsing & geocoding) ────────────────── */}
       {isParsing && (
-        <div className="rounded-3xl border border-blue-200 dark:border-blue-900/60 bg-gradient-to-b from-blue-50/40 via-white to-white dark:from-blue-950/20 dark:via-slate-900 dark:to-slate-900 p-8 sm:p-12 text-center shadow-xl space-y-6 animate-in fade-in zoom-in-95">
+        <div className="rounded-3xl border border-blue-200 dark:border-blue-900/60 bg-linear-to-b from-blue-50/40 via-white to-white dark:from-blue-950/20 dark:via-slate-900 dark:to-slate-900 p-8 sm:p-12 text-center shadow-xl space-y-6 animate-in fade-in zoom-in-95">
           {/* Top Header */}
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
             <div className="flex items-center gap-3.5 text-left">
@@ -751,7 +751,7 @@ export default function ImportManagerClient() {
           <div className="space-y-2">
             <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-4 overflow-hidden p-0.5 border border-slate-200 dark:border-slate-700/60 shadow-inner">
               <div
-                className="h-full rounded-full bg-gradient-to-r from-blue-600 via-indigo-500 to-emerald-500 transition-all duration-300 ease-out shadow-sm"
+                className="h-full rounded-full bg-linear-to-r from-blue-600 via-indigo-500 to-emerald-500 transition-all duration-300 ease-out shadow-sm"
                 style={{ width: `${progressPercent}%` }}
               />
             </div>
@@ -892,7 +892,7 @@ export default function ImportManagerClient() {
               className="hidden"
             />
 
-            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 text-white flex items-center justify-center shadow-lg shadow-blue-500/20">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-linear-to-tr from-blue-600 to-indigo-500 text-white flex items-center justify-center shadow-lg shadow-blue-500/20">
               <Upload className="w-8 h-8" />
             </div>
 
@@ -1116,7 +1116,7 @@ export default function ImportManagerClient() {
               <button
                 disabled={isCommitting}
                 onClick={handleCommit}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/30 transition-all disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm bg-linear-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/30 transition-all disabled:opacity-50"
               >
                 {isCommitting ? (
                   <>
@@ -1519,7 +1519,7 @@ export default function ImportManagerClient() {
                 type="button"
                 disabled={isCommitting}
                 onClick={executeCommit}
-                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs sm:text-sm font-bold shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-linear-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs sm:text-sm font-bold shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
               >
                 {isCommitting ? (
                   <>

@@ -327,7 +327,7 @@ export default function DashboardCharts({
           <div className="w-full overflow-x-auto">
             <svg
               viewBox={`0 0 ${chartW} ${chartH}`}
-              className="w-full h-auto min-w-[620px] select-none"
+              className="w-full h-auto min-w-155 select-none"
             >
               <defs>
                 <linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1">
@@ -503,7 +503,7 @@ export default function DashboardCharts({
               <div className="w-full overflow-x-auto">
                 <svg
                   viewBox={`0 0 ${barSvgW} ${barSvgH}`}
-                  className="w-full h-auto min-w-[540px] select-none"
+                  className="w-full h-auto min-w-135 select-none"
                 >
                   <defs>
                     <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
@@ -681,7 +681,7 @@ export default function DashboardCharts({
 
             {/* Donut Chart Visual */}
             <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-6">
-              <div className="relative w-[170px] h-[170px] shrink-0">
+              <div className="relative w-42.5 h-42.5 shrink-0">
                 <svg className="w-full h-full transform -rotate-90" viewBox={`0 0 ${donutSize} ${donutSize}`}>
                   {/* Background track circle */}
                   <circle
@@ -842,7 +842,7 @@ export default function DashboardCharts({
                   <td className="py-3 px-3 text-right font-mono font-bold text-slate-900 dark:text-white">
                     ৳ {item.revenue.toLocaleString("en-US")}
                   </td>
-                  <td className="py-3 px-3 min-w-[160px]">
+                  <td className="py-3 px-3 min-w-40">
                     <div className="flex items-center gap-2.5">
                       <div className="flex-1 h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
                         <div
