@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ui/Toast";
 import { restoreBusiness } from "@/actions/businesses";
 import RecordOrderModal, { BusinessOption, ProductOption } from "@/components/orders/RecordOrderModal";
-import { MapPin, Building2, Phone, User, Calendar, ExternalLink, Plus, ChevronDown, Map, Navigation, AlertCircle, RotateCcw } from "lucide-react";
+import { MapPin, Building2, Phone, User, Calendar, ExternalLink, Plus, ChevronDown, Map, Navigation, AlertCircle, RotateCcw, Globe, CheckCircle2, Layers } from "lucide-react";
 
 interface OrderItemDisplay {
   id: string;
@@ -38,6 +38,16 @@ interface BusinessDetailData {
   address: string | null;
   latitude: number | null;
   longitude: number | null;
+  osmLatitude?: number | null;
+  osmLongitude?: number | null;
+  osmPlaceId?: string | null;
+  osmFormattedAddress?: string | null;
+  googleLatitude?: number | null;
+  googleLongitude?: number | null;
+  googlePlaceId?: string | null;
+  googleFormattedAddress?: string | null;
+  customLatitude?: number | null;
+  customLongitude?: number | null;
   isActive: boolean;
   orderCount: number;
   isGreen: boolean;
@@ -300,31 +310,116 @@ export default function BusinessDetailClient({
           </div>
         </div>
 
-        {/* ── 2-Part Clean Address Display ─────────────────────────────────── */}
-        <div className="pt-4 border-t border-slate-100 dark:border-slate-800/80 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs md:text-sm">
-          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/60 space-y-1">
+        {/* ── Delivery Address & Dual Map Engine Geolocation Display ───────── */}
+        <div className="pt-4 border-t border-slate-100 dark:border-slate-800/80 space-y-4 text-xs md:text-sm">
+          {/* Physical Address */}
+          <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/60 space-y-1.5">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
               <Building2 className="w-3.5 h-3.5 text-blue-500" />
               <span>Physical / Delivery Address (আসল ঠিকানা)</span>
             </span>
-            <p className="text-slate-800 dark:text-slate-200 font-medium leading-relaxed">
+            <p className="text-slate-900 dark:text-slate-100 font-semibold leading-relaxed">
               {physicalAddressText}
             </p>
           </div>
 
-          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/60 space-y-1">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
-              <MapPin className="w-3.5 h-3.5 text-rose-500" />
-              <span>Map Geolocation & Pin (ম্যাপ পিন লোকেশন)</span>
-            </span>
-            <p className="text-slate-800 dark:text-slate-200 font-medium leading-relaxed">
-              {mapPinAddressText}
-              {business.latitude != null && (
-                <span className="font-mono text-xs text-slate-500 block mt-0.5">
-                  [{business.latitude.toFixed(6)}, {business.longitude?.toFixed(6)}]
+          {/* Dual Engine Pin Details */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Google Maps Official Pin */}
+            <div className="p-4 rounded-xl bg-blue-50/40 dark:bg-blue-950/20 border border-blue-200/60 dark:border-blue-900/40 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-blue-700 dark:text-blue-300 flex items-center gap-1.5">
+                  <Map className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Google Maps Official Pin</span>
                 </span>
-              )}
-            </p>
+                {business.googleLatitude != null ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">
+                    <CheckCircle2 className="w-3 h-3" />
+                    Verified Pin
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
+                    <AlertCircle className="w-3 h-3" />
+                    Pending Sync
+                  </span>
+                )}
+              </div>
+
+              <div>
+                <div className="text-slate-800 dark:text-slate-200 font-medium">
+                  {business.googleFormattedAddress || business.address || "Google address not mapped yet"}
+                </div>
+                <div className="font-mono text-xs text-blue-600 dark:text-blue-400 mt-1">
+                  {business.googleLatitude != null && business.googleLongitude != null
+                    ? `[${business.googleLatitude.toFixed(6)}, ${business.googleLongitude.toFixed(6)}]`
+                    : "No Google coordinates"}
+                </div>
+                {business.googlePlaceId && (
+                  <div className="text-[11px] text-slate-400 font-mono truncate mt-0.5" title={business.googlePlaceId}>
+                    Place ID: {business.googlePlaceId}
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-1">
+                <Link
+                  href={`/dashboard/map/google?focus=${business.id}`}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
+                >
+                  <span>Open in Google Map</span>
+                  <ExternalLink className="w-3 h-3" />
+                </Link>
+              </div>
+            </div>
+
+            {/* OpenStreetMap / Geoapify Pin */}
+            <div className="p-4 rounded-xl bg-emerald-50/40 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-900/40 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
+                  <Navigation className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>OpenStreetMap (MapLibre) Pin</span>
+                </span>
+                {business.osmLatitude != null ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">
+                    <CheckCircle2 className="w-3 h-3" />
+                    Verified Pin
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
+                    <AlertCircle className="w-3 h-3" />
+                    Pending
+                  </span>
+                )}
+              </div>
+
+              <div>
+                <div className="text-slate-800 dark:text-slate-200 font-medium">
+                  {business.osmFormattedAddress || mapPinAddressText}
+                </div>
+                <div className="font-mono text-xs text-emerald-600 dark:text-emerald-400 mt-1">
+                  {business.osmLatitude != null && business.osmLongitude != null
+                    ? `[${business.osmLatitude.toFixed(6)}, ${business.osmLongitude.toFixed(6)}]`
+                    : business.latitude != null
+                    ? `[${business.latitude.toFixed(6)}, ${business.longitude?.toFixed(6)}]`
+                    : "No OSM coordinates"}
+                </div>
+                {business.osmPlaceId && (
+                  <div className="text-[11px] text-slate-400 font-mono truncate mt-0.5" title={business.osmPlaceId}>
+                    Place ID: {business.osmPlaceId}
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-1">
+                <Link
+                  href={`/dashboard/map/geoapify?focus=${business.id}`}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 transition-colors"
+                >
+                  <span>Open in MapLibre OSM</span>
+                  <ExternalLink className="w-3 h-3" />
+                </Link>
+              </div>
+            </div>
           </div>
         </div>
       </div>

@@ -21,6 +21,7 @@ import {
   Filter,
   Sparkles,
   Truck,
+  Layers,
 } from "lucide-react";
 import {
   previewAndGeocodeBatch,
@@ -36,6 +37,7 @@ import Link from "next/link";
 
 export default function ImportManagerClient() {
   const [file, setFile] = useState<File | null>(null);
+  const [geocodeEngine, setGeocodeEngine] = useState<"BOTH" | "GOOGLE" | "GEOAPIFY">("BOTH");
   const [isParsing, setIsParsing] = useState(false);
   const [parseProgress, setParseProgress] = useState<string>("");
   const [progressPercent, setProgressPercent] = useState(0);
@@ -446,7 +448,7 @@ export default function ImportManagerClient() {
         setCurrentLocationName(sampleLoc);
         setProgressStatusText(`Geocoding batch ${batchNum} of ${totalBatches}... (${sampleLoc})`);
 
-        const res = await previewAndGeocodeChunk(chunk, currentCache);
+        const res = await previewAndGeocodeChunk(chunk, currentCache, geocodeEngine);
         if (!res.success) {
           throw new Error(res.error || `Failed to process batch ${batchNum}`);
         }
@@ -521,6 +523,15 @@ export default function ImportManagerClient() {
             longitude: suggestion.longitude,
             formattedAddress: suggestion.formattedAddress,
             confidence: 1.0,
+            osmLatitude: suggestion.latitude,
+            osmLongitude: suggestion.longitude,
+            osmPlaceId: suggestion.placeId,
+            osmFormattedAddress: suggestion.formattedAddress,
+            googleLatitude: suggestion.latitude,
+            googleLongitude: suggestion.longitude,
+            googlePlaceId: suggestion.placeId,
+            googleFormattedAddress: suggestion.formattedAddress,
+            providerUsed: "BOTH",
           };
         }
         return r;
@@ -764,138 +775,240 @@ export default function ImportManagerClient() {
         </div>
       )}
 
-      {/* ── Upload Area (Shown when not parsing and no rows) ──────────────── */}
+      {/* ── Upload Area & Engine Selector (Shown when not parsing and no rows) ──────────────── */}
       {!isParsing && !commitResult && resolvedRows.length === 0 && (
-        <div
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={handleDrop}
-          onClick={() => fileInputRef.current?.click()}
-          className="cursor-pointer rounded-3xl border-2 border-dashed p-10 sm:p-16 text-center transition-all border-slate-300 hover:border-blue-500 dark:border-slate-700 dark:hover:border-blue-400 bg-white/60 dark:bg-slate-900/40 hover:bg-blue-50/30 dark:hover:bg-slate-800/40"
-        >
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx, .xls, .csv"
-            onChange={handleFileChange}
-            className="hidden"
-          />
-
-          <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 text-white flex items-center justify-center shadow-lg shadow-blue-500/20">
-            <Upload className="w-8 h-8" />
-          </div>
-
-          <h3 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
-            Drop your Excel or CSV spreadsheet here
-          </h3>
-          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
-            {parseProgress ||
-              "Upload and synchronize orders directly with automated geocoding & business linking."}
-          </p>
-
-          {/* ── Required Columns Guide Card ─────────────────────────────── */}
-          <div className="mt-8 max-w-3xl mx-auto rounded-3xl bg-white/95 dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-6 text-left shadow-xl shadow-slate-900/5 dark:shadow-black/40 backdrop-blur-sm">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-4 mb-4 border-b border-slate-100 dark:border-slate-800">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
-                    <Sparkles className="w-4 h-4 text-amber-500" />
-                    Flexible Column Auto-Detection
+        <div className="space-y-4 animate-in fade-in zoom-in-95">
+          {/* Geospatial Engine Selector Card */}
+          <div className="p-4 sm:p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-blue-600/10 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+                  <Layers className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    Geospatial Mapping Engine
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-500/20">
+                      Step 1: Choose Engine
+                    </span>
                   </h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Select which mapping engine will geocode addresses and generate GPS coordinates.
+                  </p>
                 </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Accepts raw <strong className="text-slate-700 dark:text-slate-300">Steadfast Courier</strong> exports, <strong className="text-slate-700 dark:text-slate-300">Pathao / RedX</strong>, and custom Excel spreadsheets directly without renaming!
-                </p>
-              </div>
-
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-500/20 shrink-0">
-                <FileSpreadsheet className="w-3.5 h-3.5" />
-                Supports .xlsx, .xls, .csv
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
-              {/* Card 1: Customer / Business */}
-              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/70 dark:border-slate-700/70 space-y-1.5 transition-all hover:border-blue-300 dark:hover:border-blue-500">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-900 dark:text-slate-100">Customer / Business</span>
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-500/30">Required</span>
-                </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                  <strong className="text-slate-700 dark:text-slate-300">Accepts:</strong> Recipient Name, Business Name, Customer, Company, Client, Name
-                </p>
-              </div>
-
-              {/* Card 2: Phone Number */}
-              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/70 dark:border-slate-700/70 space-y-1.5 transition-all hover:border-blue-300 dark:hover:border-blue-500">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-900 dark:text-slate-100">Phone / Mobile</span>
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-500/30">Required</span>
-                </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                  <strong className="text-slate-700 dark:text-slate-300">Accepts:</strong> Recipient Phone, Phone Number, Mobile, Contact
-                </p>
-              </div>
-
-              {/* Card 3: Address / Location */}
-              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/70 dark:border-slate-700/70 space-y-1.5 transition-all hover:border-blue-300 dark:hover:border-blue-500">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-900 dark:text-slate-100">Delivery Address</span>
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-500/30">Geocoded</span>
-                </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                  <strong className="text-slate-700 dark:text-slate-300">Accepts:</strong> Recipient Address, Address, Location, Area, Thana, District
-                </p>
-              </div>
-
-              {/* Card 4: Order Value / COD */}
-              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/70 dark:border-slate-700/70 space-y-1.5 transition-all hover:border-blue-300 dark:hover:border-blue-500">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-900 dark:text-slate-100">Order Value (৳)</span>
-                  <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-300/60 dark:border-slate-600">Auto Filter</span>
-                </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                  <strong className="text-slate-700 dark:text-slate-300">Accepts:</strong> COD Amount, Total Amount, Price, Collection (Excludes courier charges)
-                </p>
-              </div>
-
-              {/* Card 5: Status */}
-              <div className="p-3.5 rounded-2xl bg-emerald-50/60 dark:bg-emerald-500/10 border border-emerald-200/70 dark:border-emerald-500/20 space-y-1.5 transition-all hover:border-emerald-300 dark:hover:border-emerald-500/40">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-emerald-900 dark:text-emerald-300">Delivery Status</span>
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-500/30">Smart Map</span>
-                </div>
-                <p className="text-[11px] text-emerald-700 dark:text-emerald-400/90 leading-relaxed">
-                  <strong className="text-emerald-900 dark:text-emerald-300">Accepts:</strong> Approval Status, Delivery Status, Status (Delivered, Pending, Cancelled, Partial)
-                </p>
-              </div>
-
-              {/* Card 6: Order Date */}
-              <div className="p-3.5 rounded-2xl bg-indigo-50/60 dark:bg-indigo-500/10 border border-indigo-200/70 dark:border-indigo-500/20 space-y-1.5 transition-all hover:border-indigo-300 dark:hover:border-indigo-500/40">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-indigo-950 dark:text-indigo-300">Order Date</span>
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-500/30">Timeline & Charts</span>
-                </div>
-                <p className="text-[11px] text-indigo-800 dark:text-indigo-400/90 leading-relaxed">
-                  <strong className="text-indigo-950 dark:text-indigo-300">Accepts:</strong> Created At, Order Date, Date (Essential for sales trends & reports)
-                </p>
               </div>
             </div>
 
-            {/* Optional Identifiers Strip */}
-            <div className="mt-3.5 pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400">
-              <div className="flex items-center gap-1.5">
-                <span className="font-semibold text-slate-700 dark:text-slate-300">Auto-detected Identifiers (Optional):</span>
-                <span>Order ID, Tracking Code, Invoice, Category</span>
-              </div>
-              <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-500/20">
-                Auto Linked
-              </span>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+              {/* Option 1: Dual Engine */}
+              <button
+                type="button"
+                onClick={() => setGeocodeEngine("BOTH")}
+                className={`p-4 rounded-2xl border text-left transition-all flex flex-col justify-between gap-2 cursor-pointer ${
+                  geocodeEngine === "BOTH"
+                    ? "bg-blue-50/80 dark:bg-blue-950/40 border-blue-500 dark:border-blue-500 shadow-xs ring-2 ring-blue-500/30"
+                    : "bg-slate-50/60 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/70 hover:border-blue-300 dark:hover:border-blue-600"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                    <span className="text-base">🗺️</span> Dual Engine (Recommended)
+                  </span>
+                  {geocodeEngine === "BOTH" ? (
+                    <CheckCircle2 className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                  ) : (
+                    <div className="w-4 h-4 rounded-full border border-slate-300 dark:border-slate-600" />
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                  Google Maps Official + OpenStreetMap. Automatically verifies pins for both map engines simultaneously.
+                </p>
+              </button>
+
+              {/* Option 2: Google Maps Official */}
+              <button
+                type="button"
+                onClick={() => setGeocodeEngine("GOOGLE")}
+                className={`p-4 rounded-2xl border text-left transition-all flex flex-col justify-between gap-2 cursor-pointer ${
+                  geocodeEngine === "GOOGLE"
+                    ? "bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-500 dark:border-emerald-500 shadow-xs ring-2 ring-emerald-500/30"
+                    : "bg-slate-50/60 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/70 hover:border-emerald-300 dark:hover:border-emerald-600"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                    <span className="text-base">📍</span> Google Maps Official
+                  </span>
+                  {geocodeEngine === "GOOGLE" ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  ) : (
+                    <div className="w-4 h-4 rounded-full border border-slate-300 dark:border-slate-600" />
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                  Official Google Geocoding & Places API. High accuracy landmark & area verification.
+                </p>
+              </button>
+
+              {/* Option 3: OpenStreetMap / Geoapify */}
+              <button
+                type="button"
+                onClick={() => setGeocodeEngine("GEOAPIFY")}
+                className={`p-4 rounded-2xl border text-left transition-all flex flex-col justify-between gap-2 cursor-pointer ${
+                  geocodeEngine === "GEOAPIFY"
+                    ? "bg-purple-50/80 dark:bg-purple-950/40 border-purple-500 dark:border-purple-500 shadow-xs ring-2 ring-purple-500/30"
+                    : "bg-slate-50/60 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/70 hover:border-purple-300 dark:hover:border-purple-600"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                    <span className="text-base">🌐</span> OpenStreetMap (Geoapify)
+                  </span>
+                  {geocodeEngine === "GEOAPIFY" ? (
+                    <CheckCircle2 className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0" />
+                  ) : (
+                    <div className="w-4 h-4 rounded-full border border-slate-300 dark:border-slate-600" />
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                  Open-source MapLibre & Geoapify geocoder. 100% free with zero Google Cloud API quota usage.
+                </p>
+              </button>
             </div>
           </div>
 
-          <div className="mt-6 inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-500/20">
-            Click here to choose file or drag & drop into this zone
+          {/* Upload Dropzone */}
+          <div
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={handleDrop}
+            onClick={() => fileInputRef.current?.click()}
+            className="cursor-pointer rounded-3xl border-2 border-dashed p-10 sm:p-16 text-center transition-all border-slate-300 hover:border-blue-500 dark:border-slate-700 dark:hover:border-blue-400 bg-white/60 dark:bg-slate-900/40 hover:bg-blue-50/30 dark:hover:bg-slate-800/40"
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx, .xls, .csv"
+              onChange={handleFileChange}
+              className="hidden"
+            />
+
+            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 text-white flex items-center justify-center shadow-lg shadow-blue-500/20">
+              <Upload className="w-8 h-8" />
+            </div>
+
+            <h3 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
+              Drop your Excel or CSV spreadsheet here
+            </h3>
+            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
+              {parseProgress ||
+                "Upload and synchronize orders directly with automated geocoding & business linking."}
+            </p>
+
+            {/* ── Required Columns Guide Card ─────────────────────────────── */}
+            <div className="mt-8 max-w-3xl mx-auto rounded-3xl bg-white/95 dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-6 text-left shadow-xl shadow-slate-900/5 dark:shadow-black/40 backdrop-blur-sm">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-4 mb-4 border-b border-slate-100 dark:border-slate-800">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                      <Sparkles className="w-4 h-4 text-amber-500" />
+                      Flexible Column Auto-Detection
+                    </h4>
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Accepts raw <strong className="text-slate-700 dark:text-slate-300">Steadfast Courier</strong> exports, <strong className="text-slate-700 dark:text-slate-300">Pathao / RedX</strong>, and custom Excel spreadsheets directly without renaming!
+                  </p>
+                </div>
+
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-500/20 shrink-0">
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  Supports .xlsx, .xls, .csv
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+                {/* Card 1: Customer / Business */}
+                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/70 dark:border-slate-700/70 space-y-1.5 transition-all hover:border-blue-300 dark:hover:border-blue-500">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-900 dark:text-slate-100">Customer / Business</span>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-500/30">Required</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                    <strong className="text-slate-700 dark:text-slate-300">Accepts:</strong> Recipient Name, Business Name, Customer, Company, Client, Name
+                  </p>
+                </div>
+
+                {/* Card 2: Phone Number */}
+                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/70 dark:border-slate-700/70 space-y-1.5 transition-all hover:border-blue-300 dark:hover:border-blue-500">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-900 dark:text-slate-100">Phone / Mobile</span>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-500/30">Required</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                    <strong className="text-slate-700 dark:text-slate-300">Accepts:</strong> Recipient Phone, Phone Number, Mobile, Contact
+                  </p>
+                </div>
+
+                {/* Card 3: Address / Location */}
+                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/70 dark:border-slate-700/70 space-y-1.5 transition-all hover:border-blue-300 dark:hover:border-blue-500">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-900 dark:text-slate-100">Delivery Address</span>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-500/30">Geocoded</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                    <strong className="text-slate-700 dark:text-slate-300">Accepts:</strong> Recipient Address, Address, Location, Area, Thana, District
+                  </p>
+                </div>
+
+                {/* Card 4: Order Value / COD */}
+                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/70 dark:border-slate-700/70 space-y-1.5 transition-all hover:border-blue-300 dark:hover:border-blue-500">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-900 dark:text-slate-100">Order Value (৳)</span>
+                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-300/60 dark:border-slate-600">Auto Filter</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                    <strong className="text-slate-700 dark:text-slate-300">Accepts:</strong> COD Amount, Total Amount, Price, Collection (Excludes courier charges)
+                  </p>
+                </div>
+
+                {/* Card 5: Status */}
+                <div className="p-3.5 rounded-2xl bg-emerald-50/60 dark:bg-emerald-500/10 border border-emerald-200/70 dark:border-emerald-500/20 space-y-1.5 transition-all hover:border-emerald-300 dark:hover:border-emerald-500/40">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-emerald-900 dark:text-emerald-300">Delivery Status</span>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-500/30">Smart Map</span>
+                  </div>
+                  <p className="text-[11px] text-emerald-700 dark:text-emerald-400/90 leading-relaxed">
+                    <strong className="text-emerald-900 dark:text-emerald-300">Accepts:</strong> Approval Status, Delivery Status, Status (Delivered, Pending, Cancelled, Partial)
+                  </p>
+                </div>
+
+                {/* Card 6: Order Date */}
+                <div className="p-3.5 rounded-2xl bg-indigo-50/60 dark:bg-indigo-500/10 border border-indigo-200/70 dark:border-indigo-500/20 space-y-1.5 transition-all hover:border-indigo-300 dark:hover:border-indigo-500/40">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-indigo-950 dark:text-indigo-300">Order Date</span>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-500/30">Timeline & Charts</span>
+                  </div>
+                  <p className="text-[11px] text-indigo-800 dark:text-indigo-400/90 leading-relaxed">
+                    <strong className="text-indigo-950 dark:text-indigo-300">Accepts:</strong> Created At, Order Date, Date (Essential for sales trends & reports)
+                  </p>
+                </div>
+              </div>
+
+              {/* Optional Identifiers Strip */}
+              <div className="mt-3.5 pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">Auto-detected Identifiers (Optional):</span>
+                  <span>Order ID, Tracking Code, Invoice, Category</span>
+                </div>
+                <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-500/20">
+                  Auto Linked
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-6 inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-500/20">
+              Click here to choose file or drag & drop into this zone
+            </div>
           </div>
         </div>
       )}
@@ -1116,11 +1229,26 @@ export default function ImportManagerClient() {
                       {/* Geocode Status */}
                       <td className="py-3.5 px-4 whitespace-nowrap">
                         {row.geocodeStatus === "resolved" ? (
-                          <div className="space-y-0.5">
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
-                              <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-                              Ready on Map
-                            </span>
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                                Ready on Map
+                              </span>
+                              {row.googleLatitude && row.osmLatitude ? (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-500/20">
+                                  Dual Engine
+                                </span>
+                              ) : row.googleLatitude ? (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/20">
+                                  Google Pin
+                                </span>
+                              ) : row.osmLatitude ? (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-500/20">
+                                  OSM Pin
+                                </span>
+                              ) : null}
+                            </div>
                             {row.latitude && (
                               <div className="text-[10px] text-slate-400 font-mono">
                                 {row.latitude.toFixed(4)}, {row.longitude?.toFixed(4)}

@@ -120,3 +120,175 @@ export async function changeAdminPin({
     message: "PIN changed successfully! Use your new PIN for future logins.",
   };
 }
+
+// ── 3. Geospatial Mapping & Backfill Actions ──────────────────────────────────
+import { geocodeGoogleMaps } from "@/lib/geocoding";
+
+export interface GeospatialSyncStats {
+  totalBusinesses: number;
+  osmLocatedCount: number;
+  googleLocatedCount: number;
+  missingGoogleCount: number;
+  googleKeyConfigured: boolean;
+  geoapifyKeyConfigured: boolean;
+}
+
+export async function getGeospatialSyncStats(): Promise<GeospatialSyncStats> {
+  await requireAuth();
+
+  const totalBusinesses = await db.business.count({
+    where: { isActive: true },
+  });
+
+  const osmLocatedCount = await db.business.count({
+    where: { isActive: true, osmLatitude: { not: null } },
+  });
+
+  const googleLocatedCount = await db.business.count({
+    where: { isActive: true, googleLatitude: { not: null } },
+  });
+
+  const missingGoogleCount = await db.business.count({
+    where: {
+      isActive: true,
+      googleLatitude: null,
+      OR: [
+        { address: { not: null } },
+        { area: { not: null } },
+        { osmLatitude: { not: null } },
+      ],
+    },
+  });
+
+  const googleKey =
+    process.env.GOOGLE_MAPS_SERVER_API_KEY ||
+    process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+  const geoapifyKey =
+    process.env.GEOAPIFY_SERVER_API_KEY ||
+    process.env.NEXT_PUBLIC_GEOAPIFY_API_KEY;
+
+  return {
+    totalBusinesses,
+    osmLocatedCount,
+    googleLocatedCount,
+    missingGoogleCount,
+    googleKeyConfigured: !!googleKey,
+    geoapifyKeyConfigured: !!geoapifyKey,
+  };
+}
+
+export async function syncGoogleMapsPinsChunk(batchSize = 10): Promise<{
+  success: boolean;
+  processedCount: number;
+  successCount: number;
+  remainingCount: number;
+  completed: boolean;
+  error?: string;
+}> {
+  await requireAuth();
+
+  const googleKey =
+    process.env.GOOGLE_MAPS_SERVER_API_KEY ||
+    process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+
+  if (!googleKey) {
+    return {
+      success: false,
+      processedCount: 0,
+      successCount: 0,
+      remainingCount: 0,
+      completed: true,
+      error: "Google Maps API key is not configured in .env",
+    };
+  }
+
+  // Find up to batchSize businesses where googleLatitude is null
+  const candidates = await db.business.findMany({
+    where: {
+      isActive: true,
+      googleLatitude: null,
+      OR: [
+        { address: { not: null } },
+        { area: { not: null } },
+        { osmLatitude: { not: null } },
+      ],
+    },
+    take: batchSize,
+    select: {
+      id: true,
+      name: true,
+      address: true,
+      area: true,
+      district: true,
+      osmLatitude: true,
+      osmLongitude: true,
+    },
+  });
+
+  if (candidates.length === 0) {
+    return {
+      success: true,
+      processedCount: 0,
+      successCount: 0,
+      remainingCount: 0,
+      completed: true,
+    };
+  }
+
+  let successCount = 0;
+
+  for (const b of candidates) {
+    const loc = [b.address, b.area, b.district].filter(Boolean).join(", ");
+    try {
+      const gRes = await geocodeGoogleMaps(b.name, loc);
+      if (gRes.success && gRes.latitude != null && gRes.longitude != null) {
+        await db.business.update({
+          where: { id: b.id },
+          data: {
+            googleLatitude: gRes.latitude,
+            googleLongitude: gRes.longitude,
+            googlePlaceId: gRes.placeId,
+            googleFormattedAddress: gRes.formattedAddress,
+          },
+        });
+        successCount++;
+      } else if (b.osmLatitude && b.osmLongitude) {
+        // Fallback: copy universal OSM coordinates to Google pin
+        await db.business.update({
+          where: { id: b.id },
+          data: {
+            googleLatitude: b.osmLatitude,
+            googleLongitude: b.osmLongitude,
+            googleFormattedAddress: b.address || loc,
+          },
+        });
+        successCount++;
+      }
+    } catch (err: any) {
+      console.warn(`Error backfilling Google pin for ${b.name}:`, err.message);
+    }
+  }
+
+  const remainingCount = await db.business.count({
+    where: {
+      isActive: true,
+      googleLatitude: null,
+      OR: [
+        { address: { not: null } },
+        { area: { not: null } },
+        { osmLatitude: { not: null } },
+      ],
+    },
+  });
+
+  revalidatePath("/dashboard/map/google");
+  revalidatePath("/dashboard/settings");
+
+  return {
+    success: true,
+    processedCount: candidates.length,
+    successCount,
+    remainingCount,
+    completed: remainingCount === 0,
+  };
+}

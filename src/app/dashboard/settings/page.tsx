@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { getAdminProfile } from "@/actions/settings";
+import { getAdminProfile, getGeospatialSyncStats } from "@/actions/settings";
 import { getTeamMembers } from "@/actions/team";
 import { getCourierConfig, getRecentWebhookEvents } from "@/actions/courier";
 import SettingsClient from "@/components/settings/SettingsClient";
@@ -8,12 +8,15 @@ export const metadata: Metadata = { title: "Settings & Integrations — GeoSales
 
 export default async function SettingsPage() {
   const profile = await getAdminProfile();
-  const [teamMembers, courierConfig, webhookEventsData] = await Promise.all([
+  const [teamMembers, courierConfig, webhookEventsData, geospatialStats] = await Promise.all([
     profile.role === "ADMIN" ? getTeamMembers() : Promise.resolve([]),
     profile.role === "ADMIN" ? getCourierConfig() : Promise.resolve(null),
     profile.role === "ADMIN"
       ? getRecentWebhookEvents(1, 5)
       : Promise.resolve({ events: [], total: 0, page: 1, pageSize: 5, totalPages: 1 }),
+    profile.role === "ADMIN"
+      ? getGeospatialSyncStats()
+      : Promise.resolve(null),
   ]);
 
   return (
@@ -34,6 +37,7 @@ export default async function SettingsPage() {
         initialTeamMembers={teamMembers}
         initialCourierConfig={courierConfig}
         initialWebhookEventsData={webhookEventsData}
+        initialGeospatialStats={geospatialStats}
       />
     </div>
   );

@@ -13,6 +13,13 @@ export interface MapBusiness {
   phoneRaw: string | null;
   latitude: number | null;
   longitude: number | null;
+  osmLatitude?: number | null;
+  osmLongitude?: number | null;
+  googleLatitude?: number | null;
+  googleLongitude?: number | null;
+  customLatitude?: number | null;
+  customLongitude?: number | null;
+  coordinateSource?: string | null;
   isLocated: boolean;
   orderCount: number;
   markerColor: "green" | "red"; // Core rule: Orders >= 1 -> GREEN, Orders = 0 -> RED
@@ -24,6 +31,7 @@ export interface MapFilterParams {
   district?: string;
   area?: string;
   orderColor?: "ALL" | "GREEN" | "RED";
+  engine?: "GOOGLE" | "GEOAPIFY" | "AUTO";
 }
 
 export async function getMapBusinesses(params?: MapFilterParams) {
@@ -34,6 +42,7 @@ export async function getMapBusinesses(params?: MapFilterParams) {
   const district = params?.district?.trim();
   const area = params?.area?.trim();
   const orderColor = params?.orderColor || "ALL";
+  const engine = params?.engine || "AUTO";
 
   const whereClause: any = {
     isActive: true, // Only active company businesses show on map by default
@@ -77,6 +86,13 @@ export async function getMapBusinesses(params?: MapFilterParams) {
       phoneRaw: true,
       latitude: true,
       longitude: true,
+      osmLatitude: true,
+      osmLongitude: true,
+      googleLatitude: true,
+      googleLongitude: true,
+      customLatitude: true,
+      customLongitude: true,
+      coordinateSource: true,
       _count: {
         select: { orders: true },
       },
@@ -85,8 +101,32 @@ export async function getMapBusinesses(params?: MapFilterParams) {
   });
 
   const allFiltered: MapBusiness[] = businesses.map((b) => {
-    const lat = b.latitude ? Number(b.latitude) : null;
-    const lng = b.longitude ? Number(b.longitude) : null;
+    const customLat = b.customLatitude ? Number(b.customLatitude) : null;
+    const customLng = b.customLongitude ? Number(b.customLongitude) : null;
+    const googleLat = b.googleLatitude ? Number(b.googleLatitude) : null;
+    const googleLng = b.googleLongitude ? Number(b.googleLongitude) : null;
+    const osmLat = b.osmLatitude ? Number(b.osmLatitude) : null;
+    const osmLng = b.osmLongitude ? Number(b.osmLongitude) : null;
+    const baseLat = b.latitude ? Number(b.latitude) : null;
+    const baseLng = b.longitude ? Number(b.longitude) : null;
+
+    let lat: number | null = null;
+    let lng: number | null = null;
+
+    if (customLat !== null && customLng !== null) {
+      lat = customLat;
+      lng = customLng;
+    } else if (engine === "GOOGLE") {
+      lat = googleLat ?? baseLat ?? osmLat;
+      lng = googleLng ?? baseLng ?? osmLng;
+    } else if (engine === "GEOAPIFY") {
+      lat = osmLat ?? baseLat ?? googleLat;
+      lng = osmLng ?? baseLng ?? googleLng;
+    } else {
+      lat = googleLat ?? osmLat ?? baseLat;
+      lng = googleLng ?? osmLng ?? baseLng;
+    }
+
     const isLocated = lat !== null && lng !== null;
     const orderCount = b._count.orders;
     const markerColor = "green"; // All registered company businesses in DB are GREEN clients
@@ -101,6 +141,13 @@ export async function getMapBusinesses(params?: MapFilterParams) {
       phoneRaw: b.phoneRaw,
       latitude: lat,
       longitude: lng,
+      osmLatitude: osmLat,
+      osmLongitude: osmLng,
+      googleLatitude: googleLat,
+      googleLongitude: googleLng,
+      customLatitude: customLat,
+      customLongitude: customLng,
+      coordinateSource: b.coordinateSource,
       isLocated,
       orderCount,
       markerColor,
@@ -303,6 +350,10 @@ export async function convertProspectToClient(prospect: {
             isActive: true,
             latitude: prospect.latitude ?? existing.latitude,
             longitude: prospect.longitude ?? existing.longitude,
+            osmLatitude: prospect.latitude ?? existing.osmLatitude,
+            osmLongitude: prospect.longitude ?? existing.osmLongitude,
+            googleLatitude: prospect.latitude ?? existing.googleLatitude,
+            googleLongitude: prospect.longitude ?? existing.googleLongitude,
             address: prospect.address?.trim() || existing.address,
           },
         });
@@ -329,6 +380,10 @@ export async function convertProspectToClient(prospect: {
         district: prospect.district || "Dhaka",
         latitude: prospect.latitude,
         longitude: prospect.longitude,
+        osmLatitude: prospect.latitude,
+        osmLongitude: prospect.longitude,
+        googleLatitude: prospect.latitude,
+        googleLongitude: prospect.longitude,
         coordinateSource: "geoapify_poi",
         placeProvider: "geoapify",
         externalPlaceId: prospect.externalPlaceId || null,

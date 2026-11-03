@@ -6,6 +6,11 @@ import { hasPermission } from "@/lib/permissions";
 import { revalidatePath } from "next/cache";
 import { geocodeLocation } from "./import";
 import { extractDistrictFromText } from "@/lib/district-resolver";
+import {
+  resolveDualGeocoding,
+  geocodeGoogleMaps,
+  geocodeGeoapify,
+} from "@/lib/geocoding";
 
 export interface BusinessInput {
   name: string;
@@ -17,6 +22,17 @@ export interface BusinessInput {
   address?: string;
   latitude?: number | null;
   longitude?: number | null;
+  osmLatitude?: number | null;
+  osmLongitude?: number | null;
+  osmPlaceId?: string | null;
+  osmFormattedAddress?: string | null;
+  googleLatitude?: number | null;
+  googleLongitude?: number | null;
+  googlePlaceId?: string | null;
+  googleFormattedAddress?: string | null;
+  customLatitude?: number | null;
+  customLongitude?: number | null;
+  placeProvider?: string | null;
 }
 
 export async function getBusinesses(params?: {
@@ -178,6 +194,12 @@ export async function getBusiness(id: string) {
     ...business,
     latitude: business.latitude ? Number(business.latitude) : null,
     longitude: business.longitude ? Number(business.longitude) : null,
+    osmLatitude: business.osmLatitude ? Number(business.osmLatitude) : null,
+    osmLongitude: business.osmLongitude ? Number(business.osmLongitude) : null,
+    googleLatitude: business.googleLatitude ? Number(business.googleLatitude) : null,
+    googleLongitude: business.googleLongitude ? Number(business.googleLongitude) : null,
+    customLatitude: business.customLatitude ? Number(business.customLatitude) : null,
+    customLongitude: business.customLongitude ? Number(business.customLongitude) : null,
     orderCount: business._count.orders,
     isGreen: business.isActive, // Active registered client -> GREEN, Archived -> GREY
     orders: business.orders.map((o) => ({
@@ -212,6 +234,15 @@ export interface GeocodeAddressActionResult {
   longitude?: number;
   formattedAddress?: string;
   resolvedDistrict?: string | null;
+  osmLatitude?: number;
+  osmLongitude?: number;
+  osmPlaceId?: string;
+  osmFormattedAddress?: string;
+  googleLatitude?: number;
+  googleLongitude?: number;
+  googlePlaceId?: string;
+  googleFormattedAddress?: string;
+  providerUsed?: "BOTH" | "GOOGLE" | "GEOAPIFY" | "NONE";
   error?: string;
 }
 
@@ -223,20 +254,28 @@ export async function geocodeAddressAction(
   if (!location || !location.trim()) {
     return { success: false, error: "Please enter an address or area to search." };
   }
-  const result = await geocodeLocation(businessName, location);
-  let resolvedDistrict: string | null = null;
-  if (result.success && result.formattedAddress) {
-    resolvedDistrict = extractDistrictFromText(result.formattedAddress);
-  } else if (location) {
-    resolvedDistrict = extractDistrictFromText(location);
-  }
+  const dual = await resolveDualGeocoding(businessName, location, { mode: "BOTH" });
+  const addressText = dual.primaryFormattedAddress || location;
+  const resolvedDistrict = extractDistrictFromText(addressText);
+
+  const isSuccess = dual.primaryLatitude != null && dual.primaryLongitude != null;
+
   return {
-    success: result.success,
-    latitude: result.latitude,
-    longitude: result.longitude,
-    formattedAddress: result.formattedAddress,
+    success: isSuccess,
+    latitude: dual.primaryLatitude ?? undefined,
+    longitude: dual.primaryLongitude ?? undefined,
+    formattedAddress: dual.primaryFormattedAddress ?? location,
     resolvedDistrict,
-    error: result.error,
+    osmLatitude: dual.osm?.latitude,
+    osmLongitude: dual.osm?.longitude,
+    osmPlaceId: dual.osm?.placeId,
+    osmFormattedAddress: dual.osm?.formattedAddress,
+    googleLatitude: dual.google?.latitude,
+    googleLongitude: dual.google?.longitude,
+    googlePlaceId: dual.google?.placeId,
+    googleFormattedAddress: dual.google?.formattedAddress,
+    providerUsed: dual.providerUsed,
+    error: isSuccess ? undefined : "Location could not be verified on Google Maps or OpenStreetMap.",
   };
 }
 
@@ -246,6 +285,8 @@ export interface AutocompleteSuggestion {
   district: string;
   latitude: number;
   longitude: number;
+  placeId?: string;
+  provider?: "GOOGLE" | "GEOAPIFY";
 }
 
 export async function searchAddressAutocomplete(
@@ -255,6 +296,57 @@ export async function searchAddressAutocomplete(
   await requireAuth();
   if (!query || query.trim().length < 2) return [];
 
+  const trimmed = query.trim();
+
+  // ── 1. Try Google Maps Official Geocoding API first if key configured ─────
+  const googleKey =
+    process.env.GOOGLE_MAPS_SERVER_API_KEY ||
+    process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+
+  if (googleKey) {
+    try {
+      const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(
+        trimmed
+      )}&components=country:BD&key=${googleKey}`;
+      const res = await fetch(url, { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.status === "OK" && data.results && data.results.length > 0) {
+          const suggestions: AutocompleteSuggestion[] = data.results.slice(0, 6).map((r: any) => {
+            const detectedDistrict = extractDistrictFromText(r.formatted_address) || "Dhaka";
+            let area = "";
+            for (const comp of r.address_components || []) {
+              if (comp.types.includes("sublocality") || comp.types.includes("sublocality_level_1")) {
+                area = comp.long_name;
+                break;
+              } else if (comp.types.includes("locality") || comp.types.includes("neighborhood")) {
+                area = comp.long_name;
+              }
+            }
+            if (!area) area = detectedDistrict;
+
+            return {
+              formatted: r.formatted_address,
+              area,
+              district: detectedDistrict,
+              latitude: Number(r.geometry?.location?.lat),
+              longitude: Number(r.geometry?.location?.lng),
+              placeId: r.place_id,
+              provider: "GOOGLE" as const,
+            };
+          }).filter((item: any) => !isNaN(item.latitude) && !isNaN(item.longitude));
+
+          if (suggestions.length > 0) {
+            return suggestions;
+          }
+        }
+      }
+    } catch (gErr: any) {
+      console.warn("Google autocomplete lookup failed, proceeding to Geoapify fallback:", gErr.message);
+    }
+  }
+
+  // ── 2. Fallback to Geoapify / OpenStreetMap ────────────────────────────────
   const apiKey =
     process.env.GEOAPIFY_SERVER_API_KEY ||
     process.env.NEXT_PUBLIC_GEOAPIFY_API_KEY;
@@ -262,7 +354,6 @@ export async function searchAddressAutocomplete(
   if (!apiKey) return [];
 
   try {
-    const trimmed = query.trim();
     // Always normalize commas → spaces for the base query
     const fullNormalized = trimmed.replace(/,+/g, " ").replace(/\s+/g, " ");
 
@@ -295,6 +386,8 @@ export async function searchAddressAutocomplete(
             district: detectedDistrict,
             latitude: Number(lat),
             longitude: Number(lon),
+            placeId: p.place_id,
+            provider: "GEOAPIFY" as const,
           };
         })
         .filter(
@@ -403,18 +496,26 @@ export async function createBusiness(data: BusinessInput) {
 
   let latitude = data.latitude != null ? data.latitude : null;
   let longitude = data.longitude != null ? data.longitude : null;
+  let osmLat = data.osmLatitude != null ? data.osmLatitude : latitude;
+  let osmLng = data.osmLongitude != null ? data.osmLongitude : longitude;
+  let googleLat = data.googleLatitude != null ? data.googleLatitude : latitude;
+  let googleLng = data.googleLongitude != null ? data.googleLongitude : longitude;
   let formattedAddress = data.address?.trim() || null;
   let resolvedDistrict = data.district?.trim() || null;
 
   // Auto-geocode if coordinates were not provided manually
   if ((latitude == null || longitude == null) && (data.address || data.area)) {
     const locText = [data.address, data.area].filter(Boolean).join(", ");
-    const geo = await geocodeLocation(data.name, locText);
-    if (geo.success && geo.latitude && geo.longitude) {
-      latitude = geo.latitude;
-      longitude = geo.longitude;
-      if (geo.formattedAddress && !data.address?.trim()) {
-        formattedAddress = geo.formattedAddress;
+    const dual = await resolveDualGeocoding(data.name, locText, { mode: "BOTH" });
+    if (dual.primaryLatitude != null && dual.primaryLongitude != null) {
+      latitude = dual.primaryLatitude;
+      longitude = dual.primaryLongitude;
+      osmLat = dual.osm?.latitude ?? latitude;
+      osmLng = dual.osm?.longitude ?? longitude;
+      googleLat = dual.google?.latitude ?? latitude;
+      googleLng = dual.google?.longitude ?? longitude;
+      if (dual.primaryFormattedAddress && !data.address?.trim()) {
+        formattedAddress = dual.primaryFormattedAddress;
       }
     }
   }
@@ -460,7 +561,17 @@ export async function createBusiness(data: BusinessInput) {
           phoneNormalized: phoneNormalized || existing.phoneNormalized,
           latitude: latitude != null ? latitude : existing.latitude,
           longitude: longitude != null ? longitude : existing.longitude,
-          coordinateSource: latitude != null ? "geoapify_verified" : existing.coordinateSource,
+          osmLatitude: osmLat != null ? osmLat : existing.osmLatitude,
+          osmLongitude: osmLng != null ? osmLng : existing.osmLongitude,
+          osmPlaceId: data.osmPlaceId || existing.osmPlaceId,
+          osmFormattedAddress: data.osmFormattedAddress || existing.osmFormattedAddress,
+          googleLatitude: googleLat != null ? googleLat : existing.googleLatitude,
+          googleLongitude: googleLng != null ? googleLng : existing.googleLongitude,
+          googlePlaceId: data.googlePlaceId || existing.googlePlaceId,
+          googleFormattedAddress: data.googleFormattedAddress || existing.googleFormattedAddress,
+          customLatitude: data.customLatitude != null ? data.customLatitude : existing.customLatitude,
+          customLongitude: data.customLongitude != null ? data.customLongitude : existing.customLongitude,
+          coordinateSource: latitude != null ? "dual_verified" : existing.coordinateSource,
         },
       });
 
@@ -490,7 +601,18 @@ export async function createBusiness(data: BusinessInput) {
         address: formattedAddress || data.address?.trim() || null,
         latitude,
         longitude,
-        coordinateSource: latitude != null ? "geoapify_verified" : null,
+        osmLatitude: osmLat != null ? osmLat : null,
+        osmLongitude: osmLng != null ? osmLng : null,
+        osmPlaceId: data.osmPlaceId || null,
+        osmFormattedAddress: data.osmFormattedAddress || formattedAddress || null,
+        googleLatitude: googleLat != null ? googleLat : null,
+        googleLongitude: googleLng != null ? googleLng : null,
+        googlePlaceId: data.googlePlaceId || null,
+        googleFormattedAddress: data.googleFormattedAddress || formattedAddress || null,
+        customLatitude: data.customLatitude != null ? data.customLatitude : null,
+        customLongitude: data.customLongitude != null ? data.customLongitude : null,
+        coordinateSource: latitude != null ? "dual_verified" : null,
+        placeProvider: data.placeProvider || (googleLat != null ? "google" : (osmLat != null ? "geoapify" : null)),
         isActive: true,
       },
     });
@@ -522,18 +644,26 @@ export async function updateBusiness(id: string, data: BusinessInput) {
 
   let latitude = data.latitude != null ? data.latitude : null;
   let longitude = data.longitude != null ? data.longitude : null;
+  let osmLat = data.osmLatitude != null ? data.osmLatitude : latitude;
+  let osmLng = data.osmLongitude != null ? data.osmLongitude : longitude;
+  let googleLat = data.googleLatitude != null ? data.googleLatitude : latitude;
+  let googleLng = data.googleLongitude != null ? data.googleLongitude : longitude;
   let formattedAddress = data.address?.trim() || null;
   let resolvedDistrict = data.district?.trim() || null;
 
   // Auto-geocode if coordinates were not provided manually
   if ((latitude == null || longitude == null) && (data.address || data.area)) {
     const locText = [data.address, data.area].filter(Boolean).join(", ");
-    const geo = await geocodeLocation(data.name, locText);
-    if (geo.success && geo.latitude && geo.longitude) {
-      latitude = geo.latitude;
-      longitude = geo.longitude;
-      if (geo.formattedAddress && !data.address?.trim()) {
-        formattedAddress = geo.formattedAddress;
+    const dual = await resolveDualGeocoding(data.name, locText, { mode: "BOTH" });
+    if (dual.primaryLatitude != null && dual.primaryLongitude != null) {
+      latitude = dual.primaryLatitude;
+      longitude = dual.primaryLongitude;
+      osmLat = dual.osm?.latitude ?? latitude;
+      osmLng = dual.osm?.longitude ?? longitude;
+      googleLat = dual.google?.latitude ?? latitude;
+      googleLng = dual.google?.longitude ?? longitude;
+      if (dual.primaryFormattedAddress && !data.address?.trim()) {
+        formattedAddress = dual.primaryFormattedAddress;
       }
     }
   }
@@ -558,7 +688,17 @@ export async function updateBusiness(id: string, data: BusinessInput) {
         address: formattedAddress || data.address?.trim() || null,
         latitude,
         longitude,
-        coordinateSource: latitude != null ? "geoapify_verified" : null,
+        osmLatitude: osmLat != null ? osmLat : undefined,
+        osmLongitude: osmLng != null ? osmLng : undefined,
+        osmPlaceId: data.osmPlaceId || undefined,
+        osmFormattedAddress: data.osmFormattedAddress || formattedAddress || undefined,
+        googleLatitude: googleLat != null ? googleLat : undefined,
+        googleLongitude: googleLng != null ? googleLng : undefined,
+        googlePlaceId: data.googlePlaceId || undefined,
+        googleFormattedAddress: data.googleFormattedAddress || formattedAddress || undefined,
+        customLatitude: data.customLatitude != null ? data.customLatitude : undefined,
+        customLongitude: data.customLongitude != null ? data.customLongitude : undefined,
+        coordinateSource: latitude != null ? "dual_verified" : undefined,
       },
     });
 

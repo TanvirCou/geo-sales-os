@@ -217,7 +217,7 @@ export default function BusinessListClient({
       } finally {
         setIsSearchingAddress(false);
       }
-    }, 300);
+    }, 400);
 
     return () => clearTimeout(timer);
   }, [formMapQuery]);
@@ -254,8 +254,10 @@ export default function BusinessListClient({
     setFormLat(item.latitude.toFixed(6));
     setFormLng(item.longitude.toFixed(6));
     setShowAddressSuggestions(false);
+
+    const providerLabel = item.provider === "GOOGLE" ? "Google Maps" : "OpenStreetMap";
     setGeocodeFeedback({
-      text: `Map Pin Locked: (${item.latitude.toFixed(4)}, ${item.longitude.toFixed(4)}) — Ready on Map!`,
+      text: `📍 ${providerLabel} Pin Locked: (${item.latitude.toFixed(4)}, ${item.longitude.toFixed(4)}) — Ready on Map!`,
       success: true,
     });
   };
@@ -326,8 +328,16 @@ export default function BusinessListClient({
             clearFieldError("address");
           }
         }
+
+        const engineText =
+          res.providerUsed === "BOTH"
+            ? "Dual Engine (Google + OSM)"
+            : res.providerUsed === "GOOGLE"
+            ? "Google Maps"
+            : "OpenStreetMap";
+
         setGeocodeFeedback({
-          text: `Map Pin Locked: (${res.latitude.toFixed(4)}, ${res.longitude.toFixed(4)}) — Ready on Map!`,
+          text: `📍 ${engineText} Pin Locked: (${res.latitude.toFixed(4)}, ${res.longitude.toFixed(4)}) — Ready on Map!`,
           success: true,
         });
       } else {
@@ -421,6 +431,9 @@ export default function BusinessListClient({
       (formAddress ? formAddress.split(",")[0].trim() : undefined) ||
       formDistrict;
 
+    const latNum = formLat ? parseFloat(formLat) : null;
+    const lngNum = formLng ? parseFloat(formLng) : null;
+
     const payload: BusinessInput = {
       name: formName.trim(),
       category: formCategory.trim() || undefined,
@@ -429,8 +442,12 @@ export default function BusinessListClient({
       contactName: formContact.trim() || undefined,
       phoneRaw: formPhone.trim() || undefined,
       address: formAddress.trim() || undefined,
-      latitude: formLat ? parseFloat(formLat) : null,
-      longitude: formLng ? parseFloat(formLng) : null,
+      latitude: latNum,
+      longitude: lngNum,
+      osmLatitude: latNum,
+      osmLongitude: lngNum,
+      googleLatitude: latNum,
+      googleLongitude: lngNum,
     };
 
     startTransition(async () => {
@@ -970,9 +987,20 @@ export default function BusinessListClient({
                       >
                         <MapPin className="w-4 h-4 text-blue-500 shrink-0 mt-0.5 group-hover:scale-110 transition-transform" />
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs font-semibold text-slate-800 dark:text-slate-100 truncate">
-                            {item.formatted}
-                          </p>
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs font-semibold text-slate-800 dark:text-slate-100 truncate">
+                              {item.formatted}
+                            </p>
+                            <span
+                              className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                                item.provider === "GOOGLE"
+                                  ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                                  : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                              }`}
+                            >
+                              {item.provider === "GOOGLE" ? "Google" : "OSM"}
+                            </span>
+                          </div>
                           <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
                             {item.district && (
                               <span className="font-semibold text-blue-600 dark:text-blue-400">

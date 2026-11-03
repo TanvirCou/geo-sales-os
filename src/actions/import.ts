@@ -6,6 +6,11 @@ import { hasPermission } from "@/lib/permissions";
 import { revalidatePath } from "next/cache";
 import { OrderStatus, Prisma } from "@prisma/client";
 import { extractDistrictFromText } from "@/lib/district-resolver";
+import {
+  resolveDualGeocoding,
+  geocodeGoogleMaps,
+  geocodeGeoapify,
+} from "@/lib/geocoding";
 
 export interface RawImportRow {
   rowId: string;
@@ -46,6 +51,16 @@ export interface ResolvedImportRow {
   trackingCode?: string;
   orderId?: string;
   invoice?: string;
+  // Dual Map Specific Coordinates
+  osmLatitude?: number;
+  osmLongitude?: number;
+  osmPlaceId?: string;
+  osmFormattedAddress?: string;
+  googleLatitude?: number;
+  googleLongitude?: number;
+  googlePlaceId?: string;
+  googleFormattedAddress?: string;
+  providerUsed?: "BOTH" | "GOOGLE" | "GEOAPIFY" | "NONE";
 }
 
 export interface GeocodeResult {
@@ -74,6 +89,15 @@ export interface CachedBusinessResolution {
   formattedAddress?: string;
   geocodeStatus: "resolved" | "needs_location";
   confidence?: number;
+  osmLatitude?: number;
+  osmLongitude?: number;
+  osmPlaceId?: string;
+  osmFormattedAddress?: string;
+  googleLatitude?: number;
+  googleLongitude?: number;
+  googlePlaceId?: string;
+  googleFormattedAddress?: string;
+  providerUsed?: "BOTH" | "GOOGLE" | "GEOAPIFY" | "NONE";
 }
 
 // ── 1. Phone Normalizer for Bangladesh ───────────────────────────────────────
@@ -275,11 +299,39 @@ export async function searchLocationSuggestions(
   query: string
 ): Promise<LocationSuggestion[]> {
   await requireAuth();
+  if (!query || !query.trim()) return [];
+
+  const googleKey =
+    process.env.GOOGLE_MAPS_SERVER_API_KEY ||
+    process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+
+  if (googleKey) {
+    try {
+      const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(
+        query.trim()
+      )}&components=country:BD&key=${googleKey}`;
+      const res = await fetch(url, { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.status === "OK" && data.results && data.results.length > 0) {
+          return data.results.slice(0, 5).map((r: any) => ({
+            placeId: r.place_id,
+            latitude: Number(r.geometry?.location?.lat),
+            longitude: Number(r.geometry?.location?.lng),
+            formattedAddress: r.formatted_address,
+          }));
+        }
+      }
+    } catch {
+      // Continue to Geoapify fallback
+    }
+  }
+
   const apiKey =
     process.env.GEOAPIFY_SERVER_API_KEY ||
     process.env.NEXT_PUBLIC_GEOAPIFY_API_KEY;
 
-  if (!apiKey || !query.trim()) return [];
+  if (!apiKey) return [];
 
   try {
     const url = `https://api.geoapify.com/v1/geocode/autocomplete?text=${encodeURIComponent(
@@ -303,8 +355,115 @@ export async function searchLocationSuggestions(
   }
 }
 
+// ── Helper: Resolve Single Business with Dual Engine Support ────────────────
+async function resolveSingleBusinessRow(
+  raw: RawImportRow,
+  phoneNorm: string,
+  existingBusinesses: any[],
+  geocodeEngine: "BOTH" | "GOOGLE" | "GEOAPIFY" = "BOTH"
+): Promise<CachedBusinessResolution> {
+  const matchedDb = existingBusinesses.find((b) => {
+    if (phoneNorm && b.phoneNormalized && phoneNorm === b.phoneNormalized) {
+      return true;
+    }
+    return (
+      b.name.toLowerCase().trim() === raw.businessName.toLowerCase().trim()
+    );
+  });
+
+  const existingLat = matchedDb?.latitude ? Number(matchedDb.latitude) : undefined;
+  const existingLng = matchedDb?.longitude ? Number(matchedDb.longitude) : undefined;
+  const existingOsmLat = matchedDb?.osmLatitude ? Number(matchedDb.osmLatitude) : undefined;
+  const existingOsmLng = matchedDb?.osmLongitude ? Number(matchedDb.osmLongitude) : undefined;
+  const existingGoogleLat = matchedDb?.googleLatitude ? Number(matchedDb.googleLatitude) : undefined;
+  const existingGoogleLng = matchedDb?.googleLongitude ? Number(matchedDb.googleLongitude) : undefined;
+
+  let resolvedOsmLat = existingOsmLat ?? existingLat;
+  let resolvedOsmLng = existingOsmLng ?? existingLng;
+  let resolvedOsmPlaceId = matchedDb?.osmPlaceId || undefined;
+  let resolvedOsmAddress = matchedDb?.osmFormattedAddress || undefined;
+
+  let resolvedGoogleLat = existingGoogleLat;
+  let resolvedGoogleLng = existingGoogleLng;
+  let resolvedGooglePlaceId = matchedDb?.googlePlaceId || undefined;
+  let resolvedGoogleAddress = matchedDb?.googleFormattedAddress || undefined;
+
+  const needsGoogle = (geocodeEngine === "BOTH" || geocodeEngine === "GOOGLE") && !resolvedGoogleLat;
+  const needsOsm = (geocodeEngine === "BOTH" || geocodeEngine === "GEOAPIFY") && !resolvedOsmLat;
+
+  let providerUsed: "BOTH" | "GOOGLE" | "GEOAPIFY" | "NONE" = "NONE";
+  let confidence = 0.9;
+
+  if (needsGoogle && needsOsm) {
+    const dual = await resolveDualGeocoding(raw.businessName, raw.location, { mode: geocodeEngine });
+    if (dual.osm?.success) {
+      resolvedOsmLat = dual.osm.latitude;
+      resolvedOsmLng = dual.osm.longitude;
+      resolvedOsmPlaceId = dual.osm.placeId;
+      resolvedOsmAddress = dual.osm.formattedAddress;
+    }
+    if (dual.google?.success) {
+      resolvedGoogleLat = dual.google.latitude;
+      resolvedGoogleLng = dual.google.longitude;
+      resolvedGooglePlaceId = dual.google.placeId;
+      resolvedGoogleAddress = dual.google.formattedAddress;
+    }
+    providerUsed = dual.providerUsed;
+  } else if (needsGoogle) {
+    const gRes = await geocodeGoogleMaps(raw.businessName, raw.location);
+    if (gRes.success && gRes.latitude != null && gRes.longitude != null) {
+      resolvedGoogleLat = gRes.latitude;
+      resolvedGoogleLng = gRes.longitude;
+      resolvedGooglePlaceId = gRes.placeId;
+      resolvedGoogleAddress = gRes.formattedAddress;
+      providerUsed = "GOOGLE";
+    }
+  } else if (needsOsm) {
+    const oRes = await geocodeGeoapify(raw.businessName, raw.location);
+    if (oRes.success && oRes.latitude != null && oRes.longitude != null) {
+      resolvedOsmLat = oRes.latitude;
+      resolvedOsmLng = oRes.longitude;
+      resolvedOsmPlaceId = oRes.placeId;
+      resolvedOsmAddress = oRes.formattedAddress;
+      providerUsed = "GEOAPIFY";
+    }
+  } else {
+    providerUsed = (resolvedGoogleLat && resolvedOsmLat) ? "BOTH" : (resolvedGoogleLat ? "GOOGLE" : "GEOAPIFY");
+    confidence = 1.0;
+  }
+
+  const primaryLat = resolvedGoogleLat ?? resolvedOsmLat ?? existingLat;
+  const primaryLng = resolvedGoogleLng ?? resolvedOsmLng ?? existingLng;
+  const primaryPlaceId = resolvedGooglePlaceId || resolvedOsmPlaceId || matchedDb?.externalPlaceId || undefined;
+  const primaryAddress = resolvedGoogleAddress || resolvedOsmAddress || matchedDb?.address || matchedDb?.area || raw.location;
+  const isResolved = primaryLat != null && primaryLng != null;
+
+  return {
+    isExisting: !!matchedDb,
+    existingId: matchedDb?.id,
+    placeId: primaryPlaceId,
+    latitude: primaryLat,
+    longitude: primaryLng,
+    formattedAddress: primaryAddress,
+    geocodeStatus: isResolved ? "resolved" : "needs_location",
+    confidence,
+    osmLatitude: resolvedOsmLat,
+    osmLongitude: resolvedOsmLng,
+    osmPlaceId: resolvedOsmPlaceId,
+    osmFormattedAddress: resolvedOsmAddress,
+    googleLatitude: resolvedGoogleLat,
+    googleLongitude: resolvedGoogleLng,
+    googlePlaceId: resolvedGooglePlaceId,
+    googleFormattedAddress: resolvedGoogleAddress,
+    providerUsed,
+  };
+}
+
 // ── 4. Batch Preview & Validation Action ─────────────────────────────────────
-export async function previewAndGeocodeBatch(rawRows: RawImportRow[]): Promise<{
+export async function previewAndGeocodeBatch(
+  rawRows: RawImportRow[],
+  geocodeEngine: "BOTH" | "GOOGLE" | "GEOAPIFY" = "BOTH"
+): Promise<{
   success: boolean;
   rows: ResolvedImportRow[];
   summary: {
@@ -343,25 +502,20 @@ export async function previewAndGeocodeBatch(rawRows: RawImportRow[]): Promise<{
       address: true,
       latitude: true,
       longitude: true,
+      osmLatitude: true,
+      osmLongitude: true,
+      osmPlaceId: true,
+      osmFormattedAddress: true,
+      googleLatitude: true,
+      googleLongitude: true,
+      googlePlaceId: true,
+      googleFormattedAddress: true,
       externalPlaceId: true,
       isActive: true,
     },
   });
 
-  const businessCache = new Map<
-    string,
-    {
-      isExisting: boolean;
-      existingId?: string;
-      placeId?: string;
-      latitude?: number;
-      longitude?: number;
-      formattedAddress?: string;
-      geocodeStatus: "resolved" | "needs_location";
-      confidence?: number;
-    }
-  >();
-
+  const businessCache = new Map<string, CachedBusinessResolution>();
   const resolvedRows: ResolvedImportRow[] = [];
   let totalAmountBdt = 0;
 
@@ -369,10 +523,6 @@ export async function previewAndGeocodeBatch(rawRows: RawImportRow[]): Promise<{
     const phoneNorm = await normalizePhone(raw.phoneRaw);
     const rawStatus = (raw.statusRaw || "").toLowerCase().trim();
 
-    // Map status: Only Pending, Delivered, Cancelled
-    // delivered (or completed) -> OrderStatus.COMPLETED
-    // cancelled / canceled -> OrderStatus.CANCELLED
-    // pending / empty / anything else -> OrderStatus.PENDING
     let status: OrderStatus = OrderStatus.PENDING;
     if (rawStatus.includes("partial")) {
       status = OrderStatus.PARTIAL;
@@ -401,52 +551,14 @@ export async function previewAndGeocodeBatch(rawRows: RawImportRow[]): Promise<{
       totalAmountBdt += price;
     }
 
-    // Deduplication Key: prioritize phoneNormalized if present; else trimmed lowercase name
     const dedupeKey =
       phoneNorm.length >= 7
         ? `phone_${phoneNorm}`
         : `name_${raw.businessName.toLowerCase().trim()}`;
 
-    // Check if we've already resolved this business in this batch
     let cached = businessCache.get(dedupeKey);
-
     if (!cached) {
-      // Check in DB
-      const matchedDb = existingBusinesses.find((b) => {
-        if (phoneNorm && b.phoneNormalized && phoneNorm === b.phoneNormalized) {
-          return true;
-        }
-        return (
-          b.name.toLowerCase().trim() === raw.businessName.toLowerCase().trim()
-        );
-      });
-
-      if (matchedDb && matchedDb.latitude && matchedDb.longitude) {
-        // Business already exists with coordinates!
-        cached = {
-          isExisting: true,
-          existingId: matchedDb.id,
-          placeId: matchedDb.externalPlaceId || undefined,
-          latitude: Number(matchedDb.latitude),
-          longitude: Number(matchedDb.longitude),
-          formattedAddress: matchedDb.address || matchedDb.area || raw.location,
-          geocodeStatus: "resolved",
-          confidence: 1.0,
-        };
-      } else {
-        // Brand new business or existing business missing coordinates -> Geocode!
-        const geo = await geocodeLocation(raw.businessName, raw.location);
-        cached = {
-          isExisting: !!matchedDb,
-          existingId: matchedDb?.id,
-          placeId: geo.placeId,
-          latitude: geo.latitude,
-          longitude: geo.longitude,
-          formattedAddress: geo.formattedAddress || raw.location,
-          geocodeStatus: geo.success ? "resolved" : "needs_location",
-          confidence: geo.confidence,
-        };
-      }
+      cached = await resolveSingleBusinessRow(raw, phoneNorm, existingBusinesses, geocodeEngine);
       businessCache.set(dedupeKey, cached);
     }
 
@@ -474,6 +586,15 @@ export async function previewAndGeocodeBatch(rawRows: RawImportRow[]): Promise<{
       trackingCode: raw.trackingCode,
       orderId: raw.orderId,
       invoice: raw.invoice,
+      osmLatitude: cached.osmLatitude,
+      osmLongitude: cached.osmLongitude,
+      osmPlaceId: cached.osmPlaceId,
+      osmFormattedAddress: cached.osmFormattedAddress,
+      googleLatitude: cached.googleLatitude,
+      googleLongitude: cached.googleLongitude,
+      googlePlaceId: cached.googlePlaceId,
+      googleFormattedAddress: cached.googleFormattedAddress,
+      providerUsed: cached.providerUsed,
     });
   }
 
@@ -498,7 +619,8 @@ export async function previewAndGeocodeBatch(rawRows: RawImportRow[]): Promise<{
 // ── 4b. Chunked Preview & Geocode Action (for Real-time Percentage Bar) ─────
 export async function previewAndGeocodeChunk(
   chunkRows: RawImportRow[],
-  knownCache: Record<string, CachedBusinessResolution> = {}
+  knownCache: Record<string, CachedBusinessResolution> = {},
+  geocodeEngine: "BOTH" | "GOOGLE" | "GEOAPIFY" = "BOTH"
 ): Promise<{
   success: boolean;
   rows: ResolvedImportRow[];
@@ -525,6 +647,14 @@ export async function previewAndGeocodeChunk(
       address: true,
       latitude: true,
       longitude: true,
+      osmLatitude: true,
+      osmLongitude: true,
+      osmPlaceId: true,
+      osmFormattedAddress: true,
+      googleLatitude: true,
+      googleLongitude: true,
+      googlePlaceId: true,
+      googleFormattedAddress: true,
       externalPlaceId: true,
       isActive: true,
     },
@@ -571,41 +701,8 @@ export async function previewAndGeocodeChunk(
         : `name_${raw.businessName.toLowerCase().trim()}`;
 
     let cached = businessCache.get(dedupeKey);
-
     if (!cached) {
-      const matchedDb = existingBusinesses.find((b) => {
-        if (phoneNorm && b.phoneNormalized && phoneNorm === b.phoneNormalized) {
-          return true;
-        }
-        return (
-          b.name.toLowerCase().trim() === raw.businessName.toLowerCase().trim()
-        );
-      });
-
-      if (matchedDb && matchedDb.latitude && matchedDb.longitude) {
-        cached = {
-          isExisting: true,
-          existingId: matchedDb.id,
-          placeId: matchedDb.externalPlaceId || undefined,
-          latitude: Number(matchedDb.latitude),
-          longitude: Number(matchedDb.longitude),
-          formattedAddress: matchedDb.address || matchedDb.area || raw.location,
-          geocodeStatus: "resolved",
-          confidence: 1.0,
-        };
-      } else {
-        const geo = await geocodeLocation(raw.businessName, raw.location);
-        cached = {
-          isExisting: !!matchedDb,
-          existingId: matchedDb?.id,
-          placeId: geo.placeId,
-          latitude: geo.latitude,
-          longitude: geo.longitude,
-          formattedAddress: geo.formattedAddress || raw.location,
-          geocodeStatus: geo.success ? "resolved" : "needs_location",
-          confidence: geo.confidence,
-        };
-      }
+      cached = await resolveSingleBusinessRow(raw, phoneNorm, existingBusinesses, geocodeEngine);
       businessCache.set(dedupeKey, cached);
     }
 
@@ -633,6 +730,15 @@ export async function previewAndGeocodeChunk(
       trackingCode: raw.trackingCode,
       orderId: raw.orderId,
       invoice: raw.invoice,
+      osmLatitude: cached.osmLatitude,
+      osmLongitude: cached.osmLongitude,
+      osmPlaceId: cached.osmPlaceId,
+      osmFormattedAddress: cached.osmFormattedAddress,
+      googleLatitude: cached.googleLatitude,
+      googleLongitude: cached.googleLongitude,
+      googlePlaceId: cached.googlePlaceId,
+      googleFormattedAddress: cached.googleFormattedAddress,
+      providerUsed: cached.providerUsed,
     });
   }
 
@@ -681,7 +787,6 @@ export async function commitImportBatch(rows: ResolvedImportRow[]): Promise<{
   try {
     const result = await db.$transaction(
       async (tx) => {
-        // Map to store dedupeKey -> Business ID
         const resolvedBusinessIdMap = new Map<string, string>();
         let newBusinessesCount = 0;
         let linkedBusinessesCount = 0;
@@ -714,11 +819,32 @@ export async function commitImportBatch(rows: ResolvedImportRow[]): Promise<{
 
             if (existing) {
               businessId = existing.id;
-              // If existing business was archived, reactivate it since new orders are being imported!
               const updateData: Prisma.BusinessUpdateInput = {};
               if (!existing.isActive) {
                 updateData.isActive = true;
               }
+
+              // Update OSM if incoming row has osm coordinates and existing is missing
+              if (primaryRow.osmLatitude != null && primaryRow.osmLongitude != null) {
+                if (!existing.osmLatitude || !existing.osmLongitude) {
+                  updateData.osmLatitude = primaryRow.osmLatitude;
+                  updateData.osmLongitude = primaryRow.osmLongitude;
+                  updateData.osmPlaceId = primaryRow.osmPlaceId || existing.osmPlaceId;
+                  updateData.osmFormattedAddress = primaryRow.osmFormattedAddress || existing.osmFormattedAddress;
+                }
+              }
+
+              // Update Google if incoming row has google coordinates and existing is missing
+              if (primaryRow.googleLatitude != null && primaryRow.googleLongitude != null) {
+                if (!existing.googleLatitude || !existing.googleLongitude) {
+                  updateData.googleLatitude = primaryRow.googleLatitude;
+                  updateData.googleLongitude = primaryRow.googleLongitude;
+                  updateData.googlePlaceId = primaryRow.googlePlaceId || existing.googlePlaceId;
+                  updateData.googleFormattedAddress = primaryRow.googleFormattedAddress || existing.googleFormattedAddress;
+                }
+              }
+
+              // Also ensure master/fallback latitude & longitude are populated
               if (
                 (!existing.latitude || !existing.longitude) &&
                 primaryRow.latitude &&
@@ -727,9 +853,10 @@ export async function commitImportBatch(rows: ResolvedImportRow[]): Promise<{
                 updateData.latitude = primaryRow.latitude;
                 updateData.longitude = primaryRow.longitude;
                 updateData.address = primaryRow.formattedAddress || existing.address;
-                updateData.placeProvider = "geoapify";
+                updateData.placeProvider = primaryRow.googleLatitude != null ? "google" : "geoapify";
                 updateData.externalPlaceId = primaryRow.placeId || existing.externalPlaceId;
               }
+
               if (primaryRow.category && (!existing.category || existing.category === "General")) {
                 updateData.category = primaryRow.category;
               }
@@ -743,11 +870,46 @@ export async function commitImportBatch(rows: ResolvedImportRow[]): Promise<{
               linkedBusinessesCount++;
             }
           } else {
-            // If matched business was archived, reactivate it now that new orders arrived!
-            await tx.business.updateMany({
-              where: { id: businessId, isActive: false },
-              data: { isActive: true },
+            // Matched existing business: ensure dual coordinates are saved if newly resolved
+            const existing = await tx.business.findUnique({
+              where: { id: businessId },
             });
+
+            if (existing) {
+              const updateData: Prisma.BusinessUpdateInput = {};
+              if (!existing.isActive) {
+                updateData.isActive = true;
+              }
+              if (primaryRow.osmLatitude != null && primaryRow.osmLongitude != null) {
+                if (!existing.osmLatitude || !existing.osmLongitude) {
+                  updateData.osmLatitude = primaryRow.osmLatitude;
+                  updateData.osmLongitude = primaryRow.osmLongitude;
+                  updateData.osmPlaceId = primaryRow.osmPlaceId || existing.osmPlaceId;
+                  updateData.osmFormattedAddress = primaryRow.osmFormattedAddress || existing.osmFormattedAddress;
+                }
+              }
+              if (primaryRow.googleLatitude != null && primaryRow.googleLongitude != null) {
+                if (!existing.googleLatitude || !existing.googleLongitude) {
+                  updateData.googleLatitude = primaryRow.googleLatitude;
+                  updateData.googleLongitude = primaryRow.googleLongitude;
+                  updateData.googlePlaceId = primaryRow.googlePlaceId || existing.googlePlaceId;
+                  updateData.googleFormattedAddress = primaryRow.googleFormattedAddress || existing.googleFormattedAddress;
+                }
+              }
+              if ((!existing.latitude || !existing.longitude) && primaryRow.latitude && primaryRow.longitude) {
+                updateData.latitude = primaryRow.latitude;
+                updateData.longitude = primaryRow.longitude;
+                updateData.placeProvider = primaryRow.googleLatitude != null ? "google" : "geoapify";
+                updateData.externalPlaceId = primaryRow.placeId || existing.externalPlaceId;
+              }
+
+              if (Object.keys(updateData).length > 0) {
+                await tx.business.update({
+                  where: { id: businessId },
+                  data: updateData,
+                });
+              }
+            }
             linkedBusinessesCount++;
           }
 
@@ -763,8 +925,16 @@ export async function commitImportBatch(rows: ResolvedImportRow[]): Promise<{
                 address: primaryRow.formattedAddress || primaryRow.location,
                 latitude: primaryRow.latitude != null ? primaryRow.latitude : null,
                 longitude: primaryRow.longitude != null ? primaryRow.longitude : null,
-                placeProvider: primaryRow.latitude != null && primaryRow.placeId ? "geoapify" : null,
-                externalPlaceId: primaryRow.latitude != null && primaryRow.placeId ? primaryRow.placeId : null,
+                placeProvider: primaryRow.googleLatitude != null ? "google" : (primaryRow.osmLatitude != null ? "geoapify" : null),
+                externalPlaceId: primaryRow.placeId || null,
+                osmLatitude: primaryRow.osmLatitude != null ? primaryRow.osmLatitude : null,
+                osmLongitude: primaryRow.osmLongitude != null ? primaryRow.osmLongitude : null,
+                osmPlaceId: primaryRow.osmPlaceId || null,
+                osmFormattedAddress: primaryRow.osmFormattedAddress || null,
+                googleLatitude: primaryRow.googleLatitude != null ? primaryRow.googleLatitude : null,
+                googleLongitude: primaryRow.googleLongitude != null ? primaryRow.googleLongitude : null,
+                googlePlaceId: primaryRow.googlePlaceId || null,
+                googleFormattedAddress: primaryRow.googleFormattedAddress || null,
                 category: primaryRow.category?.trim() || "General",
                 isActive: true,
               },

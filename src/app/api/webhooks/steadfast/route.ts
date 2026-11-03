@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { OrderStatus } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { decrypt } from "@/lib/encryption";
+import { resolveDualGeocoding } from "@/lib/geocoding";
+import { extractDistrictFromText } from "@/lib/district-resolver";
 
 export async function GET() {
   return NextResponse.json({
@@ -143,7 +145,79 @@ export async function POST(req: NextRequest) {
       processingError = updateErr.message || "Failed to update order in database";
     }
   } else if (!matchedOrder) {
-    processingError = `No order found matching invoice: "${invoice}" or consignmentId: "${consignmentId}"`;
+    const recipientName = (body.recipient_name ?? body.customer_name ?? "").toString().trim();
+    const recipientPhone = (body.recipient_phone ?? body.customer_phone ?? "").toString().trim();
+    const recipientAddress = (body.recipient_address ?? body.customer_address ?? "").toString().trim();
+
+    if ((invoice || consignmentId) && recipientName && recipientPhone) {
+      try {
+        const phoneNorm = recipientPhone.replace(/\D/g, "");
+        const existingBiz = await db.business.findFirst({
+          where: {
+            OR: [
+              phoneNorm ? { phoneNormalized: phoneNorm } : undefined,
+              { name: { equals: recipientName, mode: "insensitive" } },
+            ].filter(Boolean) as any,
+          },
+        });
+
+        let bizId = existingBiz?.id;
+        if (!bizId) {
+          const dual = await resolveDualGeocoding(recipientName, recipientAddress, { mode: "BOTH" });
+          const district = extractDistrictFromText(dual.primaryFormattedAddress || recipientAddress);
+
+          const newBiz = await db.business.create({
+            data: {
+              name: recipientName,
+              address: dual.primaryFormattedAddress || recipientAddress,
+              phoneRaw: recipientPhone,
+              phoneNormalized: phoneNorm,
+              district,
+              area: recipientAddress.split(",")[0]?.trim() || district,
+              latitude: dual.primaryLatitude,
+              longitude: dual.primaryLongitude,
+              osmLatitude: dual.osm?.latitude,
+              osmLongitude: dual.osm?.longitude,
+              osmPlaceId: dual.osm?.placeId,
+              osmFormattedAddress: dual.osm?.formattedAddress,
+              googleLatitude: dual.google?.latitude,
+              googleLongitude: dual.google?.longitude,
+              googlePlaceId: dual.google?.placeId,
+              googleFormattedAddress: dual.google?.formattedAddress,
+              placeProvider: dual.google?.latitude != null ? "google" : "geoapify",
+              coordinateSource: "webhook_dual_geocoded",
+              isActive: true,
+            },
+          });
+          bizId = newBiz.id;
+        }
+
+        const extId = invoice || String(consignmentId);
+        matchedOrder = await db.order.create({
+          data: {
+            businessId: bizId,
+            source: "steadfast",
+            externalOrderId: extId,
+            consignmentId: consignmentId ? String(consignmentId) : null,
+            status: targetStatus || OrderStatus.PENDING,
+            sourceStatusRaw: rawStatus,
+            codAmount: codAmount != null ? Number(codAmount) : null,
+            totalAmountBdt: codAmount != null ? Number(codAmount) : null,
+          },
+        });
+
+        resultStatus = "processed";
+        revalidatePath("/dashboard");
+        revalidatePath("/dashboard/orders");
+        revalidatePath("/dashboard/businesses");
+        revalidatePath("/dashboard/map/geoapify");
+        revalidatePath("/dashboard/map/google");
+      } catch (createErr: any) {
+        processingError = createErr.message || "Failed to auto-create customer and order from webhook";
+      }
+    } else {
+      processingError = `No order found matching invoice: "${invoice}" or consignmentId: "${consignmentId}"`;
+    }
   } else if (!targetStatus) {
     processingError = `Unrecognized status string: "${rawStatus}"`;
   }

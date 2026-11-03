@@ -86,6 +86,23 @@ model Business {
   coordinateSourceRef  String?   @map("coordinate_source_ref")
   placeProvider        String?   @map("place_provider")
   externalPlaceId      String?   @map("external_place_id")
+
+  // ── OpenStreetMap / Geoapify Specific Storage ─────────
+  osmLatitude          Decimal?  @db.Decimal(10, 7) @map("osm_latitude")
+  osmLongitude         Decimal?  @db.Decimal(10, 7) @map("osm_longitude")
+  osmPlaceId           String?   @map("osm_place_id")
+  osmFormattedAddress  String?   @map("osm_formatted_address")
+
+  // ── Google Maps Official Specific Storage ────────────
+  googleLatitude       Decimal?  @db.Decimal(10, 7) @map("google_latitude")
+  googleLongitude      Decimal?  @db.Decimal(10, 7) @map("google_longitude")
+  googlePlaceId        String?   @map("google_place_id")
+  googleFormattedAddress String? @map("google_formatted_address")
+
+  // ── Custom User Override (Manual Pin Drag) ───────────
+  customLatitude       Decimal?  @db.Decimal(10, 7) @map("custom_latitude")
+  customLongitude      Decimal?  @db.Decimal(10, 7) @map("custom_longitude")
+
   isActive             Boolean   @default(true) @map("is_active")
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
@@ -93,6 +110,8 @@ model Business {
   orders               Order[]
 
   @@index([placeProvider, externalPlaceId])
+  @@index([googlePlaceId])
+  @@index([osmPlaceId])
   @@index([category])
   @@index([area])
   @@index([district])
