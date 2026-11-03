@@ -129,6 +129,12 @@ export default function GoogleMapClient({
   const [locationError, setLocationError] = useState<string | null>(null);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
 
+  const selectedPointRef = useRef<UnifiedMapPoint | null>(null);
+  selectedPointRef.current = selectedPoint;
+
+  const userLocationRef = useRef<{ lat: number; lng: number } | null>(null);
+  userLocationRef.current = userLocation;
+
   // Filters state
   const [filters, setFilters] = useState<MapFiltersState>({
     q: "",
@@ -490,146 +496,153 @@ export default function GoogleMapClient({
   };
 
   // Helper to execute Google / Geoapify road route calculation
-  const executeGoogleRoute = async (startLat: number, startLng: number, pt: UnifiedMapPoint) => {
-    const map = mapInstanceRef.current;
-    if (!map || !window.google) return;
+  const executeGoogleRoute = useCallback(
+    async (startLat: number, startLng: number, pt: UnifiedMapPoint) => {
+      const map = mapInstanceRef.current;
+      if (!map || !window.google) return;
 
-    setIsRouting(true);
-    const destLat = pt.latitude;
-    const destLng = pt.longitude;
+      setIsRouting(true);
+      const destLat = pt.latitude;
+      const destLng = pt.longitude;
 
-    // Clear previous polyline and renderer
-    if (routePolylineRef.current) {
-      routePolylineRef.current.setMap(null);
-      routePolylineRef.current = null;
-    }
-    if (directionsRendererRef.current) {
-      directionsRendererRef.current.setMap(null);
-    }
-
-    try {
-      const res = await calculateGeoapifyRoute({
-        originLat: startLat,
-        originLon: startLng,
-        destLat: destLat,
-        destLon: destLng,
-        mode: "drive",
-      });
-
-      if (res.success && res.geojson) {
-        setRouteInfo({
-          distanceKm: res.distanceKm || 0,
-          durationMin: res.durationMin || 0,
-        });
-
-        const coords: { lat: number; lng: number }[] = [];
-        const geom = res.geojson.geometry;
-        if (geom.type === "LineString") {
-          geom.coordinates.forEach((p: [number, number]) => {
-            coords.push({ lat: p[1], lng: p[0] });
-          });
-        } else if (geom.type === "MultiLineString") {
-          geom.coordinates.forEach((line: [number, number][]) => {
-            line.forEach((p) => coords.push({ lat: p[1], lng: p[0] }));
-          });
-        }
-
-        const polyline = new window.google.maps.Polyline({
-          path: coords,
-          geodesic: true,
-          strokeColor: "#2563eb",
-          strokeOpacity: 0.9,
-          strokeWeight: 5,
-          map,
-        });
-        routePolylineRef.current = polyline;
-
-        const bounds = new window.google.maps.LatLngBounds();
-        coords.forEach((c) => bounds.extend(c));
-        bounds.extend({ lat: startLat, lng: startLng });
-        bounds.extend({ lat: destLat, lng: destLng });
-        map.fitBounds(bounds, { top: 60, bottom: 60, left: 60, right: 60 });
-        return;
+      // Clear previous polyline and renderer
+      if (routePolylineRef.current) {
+        routePolylineRef.current.setMap(null);
+        routePolylineRef.current = null;
       }
-    } catch (err: any) {
-      console.warn("Server road route had issue, checking DirectionsService fallback...", err);
-    }
+      if (directionsRendererRef.current) {
+        directionsRendererRef.current.setMap(null);
+      }
 
-    try {
-      if (window.google.maps.DirectionsService) {
-        const directionsService = new window.google.maps.DirectionsService();
-        if (!directionsRendererRef.current) {
-          directionsRendererRef.current = new window.google.maps.DirectionsRenderer({
-            map,
-            suppressMarkers: false,
+      try {
+        const res = await calculateGeoapifyRoute({
+          originLat: startLat,
+          originLon: startLng,
+          destLat: destLat,
+          destLon: destLng,
+          mode: "drive",
+        });
+
+        if (res.success && res.geojson) {
+          setRouteInfo({
+            distanceKm: res.distanceKm || 0,
+            durationMin: res.durationMin || 0,
           });
-        } else {
-          directionsRendererRef.current.setMap(map);
-        }
 
-        directionsService.route(
-          {
-            origin: { lat: startLat, lng: startLng },
-            destination: { lat: destLat, lng: destLng },
-            travelMode: window.google.maps.TravelMode.DRIVING,
-          },
-          (result: any, status: any) => {
-            if (status === window.google.maps.DirectionsStatus.OK) {
-              directionsRendererRef.current.setDirections(result);
-              const leg = result.routes[0].legs[0];
-              setRouteInfo({
-                distanceKm: Math.round((leg.distance.value / 1000) * 10) / 10,
-                durationMin: Math.round(leg.duration.value / 60),
-              });
-            }
+          const coords: { lat: number; lng: number }[] = [];
+          const geom = res.geojson.geometry;
+          if (geom.type === "LineString") {
+            geom.coordinates.forEach((p: [number, number]) => {
+              coords.push({ lat: p[1], lng: p[0] });
+            });
+          } else if (geom.type === "MultiLineString") {
+            geom.coordinates.forEach((line: [number, number][]) => {
+              line.forEach((p) => coords.push({ lat: p[1], lng: p[0] }));
+            });
           }
-        );
+
+          const polyline = new window.google.maps.Polyline({
+            path: coords,
+            geodesic: true,
+            strokeColor: "#2563eb",
+            strokeOpacity: 0.9,
+            strokeWeight: 5,
+            map,
+          });
+          routePolylineRef.current = polyline;
+
+          const bounds = new window.google.maps.LatLngBounds();
+          coords.forEach((c) => bounds.extend(c));
+          bounds.extend({ lat: startLat, lng: startLng });
+          bounds.extend({ lat: destLat, lng: destLng });
+          map.fitBounds(bounds, { top: 60, bottom: 60, left: 60, right: 60 });
+          return;
+        }
+      } catch (err: any) {
+        console.warn("Server road route had issue, checking DirectionsService fallback...", err);
       }
-    } catch (err: any) {
-      alert("Route error: " + err.message);
-    } finally {
-      setIsRouting(false);
-    }
-  };
+
+      try {
+        if (window.google.maps.DirectionsService) {
+          const directionsService = new window.google.maps.DirectionsService();
+          if (!directionsRendererRef.current) {
+            directionsRendererRef.current = new window.google.maps.DirectionsRenderer({
+              map,
+              suppressMarkers: false,
+            });
+          } else {
+            directionsRendererRef.current.setMap(map);
+          }
+
+          directionsService.route(
+            {
+              origin: { lat: startLat, lng: startLng },
+              destination: { lat: destLat, lng: destLng },
+              travelMode: window.google.maps.TravelMode.DRIVING,
+            },
+            (result: any, status: any) => {
+              if (status === window.google.maps.DirectionsStatus.OK) {
+                directionsRendererRef.current.setDirections(result);
+                const leg = result.routes[0].legs[0];
+                setRouteInfo({
+                  distanceKm: Math.round((leg.distance.value / 1000) * 10) / 10,
+                  durationMin: Math.round(leg.duration.value / 60),
+                });
+              }
+            }
+          );
+        }
+      } catch (err: any) {
+        alert("Route error: " + err.message);
+      } finally {
+        setIsRouting(false);
+      }
+    },
+    []
+  );
 
   // Road Route calculation starting from current user location
-  const handleCalculateRoute = async (targetPoint?: UnifiedMapPoint) => {
-    const pt = targetPoint || selectedPoint;
-    if (!pt || !mapInstanceRef.current || !window.google) return;
+  const handleCalculateRoute = useCallback(
+    async (targetPoint?: UnifiedMapPoint) => {
+      const pt = targetPoint || selectedPointRef.current;
+      if (!pt || !mapInstanceRef.current || !window.google) return;
 
-    setSelectedPoint(pt);
+      setSelectedPoint(pt);
 
-    // If userLocation is already available, calculate directly from user's current location!
-    if (userLocation) {
-      executeGoogleRoute(userLocation.lat, userLocation.lng, pt);
-      return;
-    }
+      const currentUserLocation = userLocationRef.current;
+      // If userLocation is already available, calculate directly from user's current location!
+      if (currentUserLocation) {
+        executeGoogleRoute(currentUserLocation.lat, currentUserLocation.lng, pt);
+        return;
+      }
 
-    // If userLocation is not yet set, obtain current position first then calculate route
-    if (navigator.geolocation) {
-      setIsRouting(true);
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const lat = pos.coords.latitude;
-          const lng = pos.coords.longitude;
-          setUserLocation({ lat, lng });
-          if (mapInstanceRef.current) {
-            placePulsingDot(mapInstanceRef.current, lat, lng);
-          }
-          executeGoogleRoute(lat, lng, pt);
-        },
-        () => {
-          const center = mapInstanceRef.current?.getCenter();
-          const fallbackLat = center ? center.lat() : 23.7405;
-          const fallbackLng = center ? center.lng() : 90.3846;
-          executeGoogleRoute(fallbackLat, fallbackLng, pt);
-        },
-        { enableHighAccuracy: true, timeout: 6000 }
-      );
-    } else {
-      executeGoogleRoute(23.7405, 90.3846, pt);
-    }
-  };
+      // If userLocation is not yet set, obtain current position first then calculate route
+      if (navigator.geolocation) {
+        setIsRouting(true);
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            const lat = pos.coords.latitude;
+            const lng = pos.coords.longitude;
+            setUserLocation({ lat, lng });
+            if (mapInstanceRef.current) {
+              placePulsingDot(mapInstanceRef.current, lat, lng);
+            }
+            executeGoogleRoute(lat, lng, pt);
+          },
+          () => {
+            const center = mapInstanceRef.current?.getCenter();
+            const fallbackLat = center ? (typeof center.lat === "function" ? center.lat() : center.lat) : 23.7405;
+            const fallbackLng = center ? (typeof center.lng === "function" ? center.lng() : center.lng) : 90.3846;
+            executeGoogleRoute(fallbackLat, fallbackLng, pt);
+          },
+          { enableHighAccuracy: true, timeout: 6000 }
+        );
+      } else {
+        executeGoogleRoute(23.7405, 90.3846, pt);
+      }
+    },
+    [executeGoogleRoute, placePulsingDot]
+  );
 
   const handleClearRoute = () => {
     setRouteInfo(null);
@@ -752,6 +765,7 @@ export default function GoogleMapClient({
         if (activeInfoWindowRef.current) {
           activeInfoWindowRef.current.close();
           activeInfoWindowRef.current = null;
+          currentOpenPointIdRef.current = null;
         }
       });
 
@@ -894,39 +908,53 @@ export default function GoogleMapClient({
     [handleCalculateRoute]
   );
 
-  // Render / sync green DB client markers (created once, updated only when clientPoints change)
+  // Render / sync green DB client markers (reconciled differentially to preserve open popups)
   useEffect(() => {
     if (!mapLoaded || !mapInstanceRef.current || !window.google) return;
     const map = mapInstanceRef.current;
 
-    // Clear old client markers
-    clientMarkersRef.current.forEach((m) => m.setMap(null));
-    clientMarkersRef.current = [];
+    const currentIds = new Set(clientPoints.map((p) => p.id));
 
-    // Remove client point keys from markersMapRef
-    for (const [key, val] of markersMapRef.current.entries()) {
-      if (val.point.isClient) {
-        markersMapRef.current.delete(key);
+    // Clear only client markers that are no longer in clientPoints AND not currently active in popup
+    const remainingMarkers: any[] = [];
+    clientMarkersRef.current.forEach((m) => {
+      const ptId = (m as any).__pointId;
+      if (ptId && !currentIds.has(ptId) && ptId !== currentOpenPointIdRef.current) {
+        m.setMap(null);
+        markersMapRef.current.delete(ptId);
+      } else {
+        remainingMarkers.push(m);
       }
-    }
+    });
+    clientMarkersRef.current = remainingMarkers;
 
     clientPoints.forEach((pt) => {
-      const iconConfig = getMarkerIcon("green", pt.category);
-      const marker = new window.google.maps.Marker({
-        position: { lat: pt.latitude, lng: pt.longitude },
-        map,
-        title: `${pt.name} (🟢 Ordered - ${pt.orderCount} Orders)`,
-        icon: iconConfig,
-        zIndex: 100, // Client markers always stay on top of prospect pins
-      });
-      (marker as any).__pointId = pt.id;
+      const existing = markersMapRef.current.get(pt.id);
+      if (!existing) {
+        const iconConfig = getMarkerIcon("green", pt.category);
+        const marker = new window.google.maps.Marker({
+          position: { lat: pt.latitude, lng: pt.longitude },
+          map,
+          title: `${pt.name} (🟢 Ordered - ${pt.orderCount} Orders)`,
+          icon: iconConfig,
+          zIndex: 100, // Client markers always stay on top of prospect pins
+        });
+        (marker as any).__pointId = pt.id;
 
-      marker.addListener("click", () => {
-        openPointInfoWindow(pt, marker, true);
-      });
+        marker.addListener("click", (e: any) => {
+          e?.stop?.();
+          openPointInfoWindow(pt, marker, true);
+        });
 
-      clientMarkersRef.current.push(marker);
-      markersMapRef.current.set(pt.id, { marker, point: pt });
+        clientMarkersRef.current.push(marker);
+        markersMapRef.current.set(pt.id, { marker, point: pt });
+      } else {
+        (existing.marker as any).__pointId = pt.id;
+        existing.point = pt;
+        if (!existing.marker.getMap()) {
+          existing.marker.setMap(map);
+        }
+      }
     });
   }, [mapLoaded, clientPoints, getMarkerIcon, openPointInfoWindow]);
 
@@ -966,7 +994,8 @@ export default function GoogleMapClient({
         });
         (marker as any).__pointId = pt.id;
 
-        marker.addListener("click", () => {
+        marker.addListener("click", (e: any) => {
+          e?.stop?.();
           openPointInfoWindow(pt, marker, true);
         });
 
@@ -974,6 +1003,7 @@ export default function GoogleMapClient({
         markersMapRef.current.set(pt.id, { marker, point: pt });
       } else {
         (existing.marker as any).__pointId = pt.id;
+        existing.point = pt;
         if (!existing.marker.getMap()) {
           existing.marker.setMap(map);
         }
@@ -1104,7 +1134,8 @@ export default function GoogleMapClient({
         });
         (newMarker as any).__pointId = pt.id;
 
-        newMarker.addListener("click", () => {
+        newMarker.addListener("click", (e: any) => {
+          e?.stop?.();
           openPointInfoWindow(pt, newMarker, true);
         });
 
