@@ -299,9 +299,9 @@ export default function ProductListClient({
         </div>
       </div>
 
-      {/* Table */}
-      <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/40 shadow-sm">
-        <table className="w-full text-left border-collapse text-sm">
+      {/* Table — Desktop View (md:) */}
+      <div className="hidden md:block overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/40 shadow-sm">
+        <table className="w-full min-w-[700px] text-left border-collapse text-sm">
           <thead>
             <tr className="bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">
               <th className="px-5 py-3.5 min-w-55">Product Name</th>
@@ -368,6 +368,93 @@ export default function ProductListClient({
             )}
           </tbody>
         </table>
+      </div>
+
+      {/* Products Mobile Cards View (< md) */}
+      <div className="block md:hidden space-y-3">
+        {paginatedProducts.length === 0 ? (
+          <div className="p-8 text-center text-slate-400 dark:text-slate-500 font-medium bg-white dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800 text-sm">
+            No products found.
+          </div>
+        ) : (
+          paginatedProducts.map((p) => (
+            <div
+              key={p.id}
+              className="p-4 rounded-xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900/80 shadow-xs space-y-3"
+            >
+              {/* Header: SKU & Status */}
+              <div className="flex items-center justify-between gap-2">
+                <code className="text-xs font-mono text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 px-2.5 py-0.5 rounded-md border border-blue-200/60 dark:border-blue-500/20">
+                  {p.sku || "NO-SKU"}
+                </code>
+
+                <span
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border ${
+                    p.isActive
+                      ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20"
+                      : "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/20"
+                  }`}
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      p.isActive ? "bg-emerald-500" : "bg-amber-500"
+                    }`}
+                  />
+                  {p.isActive ? "Active" : "Archived"}
+                </span>
+              </div>
+
+              {/* Product Name */}
+              <div className="font-bold text-base text-slate-900 dark:text-white line-clamp-1">
+                {p.name}
+              </div>
+
+              {/* Unit & Order References */}
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
+                <div>
+                  Unit: <span className="font-semibold text-slate-800 dark:text-slate-200">{p.unit || "Pcs"}</span>
+                </div>
+
+                <div>
+                  {p.orderItemCount > 0 ? (
+                    <span className="text-blue-600 dark:text-blue-400 font-medium">
+                      📦 {p.orderItemCount} order line{p.orderItemCount > 1 ? "s" : ""}
+                    </span>
+                  ) : (
+                    <span className="text-slate-400">Not ordered yet</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Actions */}
+              {canManageProducts && (
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => openEditModal(p)}
+                    className="flex-1 justify-center inline-flex items-center gap-1 px-3 py-2 bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 text-blue-700 dark:text-blue-300 font-semibold text-xs rounded-xl border border-blue-200/80 dark:border-blue-500/30 transition-all active:scale-95 shadow-2xs"
+                  >
+                    <Edit className="w-3.5 h-3.5" />
+                    <span>Edit Product</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={(e) => handleToggleActionMenu(e, p)}
+                    className={`p-2 rounded-xl border transition-all cursor-pointer ${
+                      openActionProduct?.id === p.id
+                        ? "bg-slate-100 dark:bg-slate-800 text-blue-600 dark:text-blue-400 border-slate-300 dark:border-slate-700 shadow-sm"
+                        : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/70 border-slate-200 dark:border-slate-800"
+                    }`}
+                    title="Actions"
+                  >
+                    <MoreVertical className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+            </div>
+          ))
+        )}
       </div>
 
       {/* Pagination Controls */}

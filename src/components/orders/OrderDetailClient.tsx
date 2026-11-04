@@ -341,52 +341,100 @@ export default function OrderDetailClient({
         </h2>
 
         {order.items.length > 0 ? (
-          <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 shadow-sm">
-            <table className="w-full text-left border-collapse text-sm">
-              <thead>
-                <tr className="bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">
-                  <th className="px-5 py-4">Product Description</th>
-                  <th className="px-5 py-4">SKU Code</th>
-                  <th className="px-5 py-4 text-right">Quantity</th>
-                  <th className="px-5 py-4 text-right">Unit Price (BDT)</th>
-                  <th className="px-5 py-4 text-right">Subtotal (BDT)</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/40">
-                {order.items.map((item) => (
-                  <tr key={item.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/30 transition-colors">
-                    <td className="px-5 py-4 font-semibold text-slate-900 dark:text-slate-100">
-                      {item.sourceProductName || item.productName || "Item"}
+          <>
+            {/* Desktop Table View (md:) */}
+            <div className="hidden md:block overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 shadow-sm">
+              <table className="w-full min-w-[650px] text-left border-collapse text-sm">
+                <thead>
+                  <tr className="bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+                    <th className="px-5 py-4">Product Description</th>
+                    <th className="px-5 py-4 whitespace-nowrap">SKU Code</th>
+                    <th className="px-5 py-4 text-right whitespace-nowrap">Quantity</th>
+                    <th className="px-5 py-4 text-right whitespace-nowrap">Unit Price (BDT)</th>
+                    <th className="px-5 py-4 text-right whitespace-nowrap">Subtotal (BDT)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/40">
+                  {order.items.map((item) => (
+                    <tr key={item.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/30 transition-colors">
+                      <td className="px-5 py-4 font-semibold text-slate-900 dark:text-slate-100">
+                        {item.sourceProductName || item.productName || "Item"}
+                      </td>
+                      <td className="px-5 py-4 whitespace-nowrap">
+                        <code className="text-xs font-mono text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 px-2.5 py-1 rounded-md border border-blue-100 dark:border-blue-500/20">
+                          {item.productSku || "—"}
+                        </code>
+                      </td>
+                      <td className="px-5 py-4 text-right font-mono text-slate-700 dark:text-slate-300 tabular-nums whitespace-nowrap">
+                        {item.quantity}
+                      </td>
+                      <td className="px-5 py-4 text-right font-mono text-slate-600 dark:text-slate-400 tabular-nums text-xs whitespace-nowrap">
+                        BDT {item.unitPriceBdt.toFixed(2)}
+                      </td>
+                      <td className="px-5 py-4 text-right font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums text-sm whitespace-nowrap">
+                        BDT {item.lineTotal.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-slate-50/90 dark:bg-slate-800/80 border-t-2 border-slate-200 dark:border-slate-800">
+                    <td colSpan={4} className="px-5 py-4 text-right font-bold text-slate-700 dark:text-slate-200">
+                      Grand Total:
                     </td>
-                    <td className="px-5 py-4">
-                      <code className="text-xs font-mono text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 px-2.5 py-1 rounded-md border border-blue-100 dark:border-blue-500/20">
-                        {item.productSku || "—"}
-                      </code>
-                    </td>
-                    <td className="px-5 py-4 text-right font-mono text-slate-700 dark:text-slate-300 tabular-nums">
-                      {item.quantity}
-                    </td>
-                    <td className="px-5 py-4 text-right font-mono text-slate-600 dark:text-slate-400 tabular-nums text-xs">
-                      BDT {item.unitPriceBdt.toFixed(2)}
-                    </td>
-                    <td className="px-5 py-4 text-right font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums text-sm">
-                      BDT {item.lineTotal.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                    <td className="px-5 py-4 text-right font-extrabold text-xl text-blue-600 dark:text-blue-400 font-mono tabular-nums whitespace-nowrap">
+                      BDT {(order.totalBdt ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
                     </td>
                   </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="bg-slate-50/90 dark:bg-slate-800/80 border-t-2 border-slate-200 dark:border-slate-800">
-                  <td colSpan={4} className="px-5 py-4 text-right font-bold text-slate-700 dark:text-slate-200">
-                    Grand Total:
-                  </td>
-                  <td className="px-5 py-4 text-right font-extrabold text-xl text-blue-600 dark:text-blue-400 font-mono tabular-nums">
-                    BDT {(order.totalBdt ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
+                </tfoot>
+              </table>
+            </div>
+
+            {/* Mobile Cards View (< md) */}
+            <div className="block md:hidden space-y-3">
+              {order.items.map((item) => (
+                <div
+                  key={item.id}
+                  className="p-4 rounded-xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900/80 shadow-xs space-y-2.5"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="font-semibold text-sm text-slate-900 dark:text-slate-100">
+                      {item.sourceProductName || item.productName || "Item"}
+                    </div>
+                    {item.productSku && (
+                      <code className="shrink-0 text-[11px] font-mono text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 px-2 py-0.5 rounded-md border border-blue-100 dark:border-blue-500/20">
+                        {item.productSku}
+                      </code>
+                    )}
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
+                    <div>
+                      Qty: <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{item.quantity}</span>
+                      {" × "}
+                      <span className="font-mono">BDT {item.unitPriceBdt.toFixed(2)}</span>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Subtotal</div>
+                      <div className="font-bold font-mono text-sm text-slate-900 dark:text-slate-100">
+                        BDT {item.lineTotal.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              {/* Mobile Grand Total Card */}
+              <div className="p-4 rounded-xl border border-blue-200 dark:border-blue-900/50 bg-blue-50/50 dark:bg-blue-950/20 flex items-center justify-between">
+                <span className="text-sm font-bold text-slate-700 dark:text-slate-200">
+                  Grand Total
+                </span>
+                <span className="text-lg font-black font-mono text-blue-600 dark:text-blue-400">
+                  BDT {(order.totalBdt ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+            </div>
+          </>
         ) : (
           <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-6 sm:p-8 text-center space-y-2">
             <div className="w-12 h-12 mx-auto rounded-2xl bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-lg">

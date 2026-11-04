@@ -32,6 +32,7 @@ import {
   RotateCcw,
   Navigation,
   X,
+  Phone,
 } from "lucide-react";
 
 interface BusinessItem {
@@ -563,10 +564,10 @@ export default function BusinessListClient({
   return (
     <div className="space-y-6">
       {/* Filter and Action Bar */}
-      <div className="bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-4 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-xl p-4 sm:p-5 space-y-4 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-between gap-3">
           {/* Search Input */}
-          <div className="flex-1 min-w-60">
+          <div className="w-full sm:flex-1 sm:min-w-60">
             <input
               type="text"
               placeholder="Search by name, phone, area, category…"
@@ -586,7 +587,7 @@ export default function BusinessListClient({
               setSelectedCategory(e.target.value);
               setCurrentPage(1);
             }}
-            className="px-3.5 py-2.5 bg-white dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700/80 rounded-lg text-sm text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-all cursor-pointer shadow-sm"
+            className="w-full sm:w-auto px-3.5 py-2.5 bg-white dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700/80 rounded-lg text-sm text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-all cursor-pointer shadow-sm"
           >
             <option value="ALL">All Categories ({filterOptions.categories.length})</option>
             {filterOptions.categories.map((c) => (
@@ -603,7 +604,7 @@ export default function BusinessListClient({
               setSelectedDistrict(e.target.value);
               setCurrentPage(1);
             }}
-            className="px-3.5 py-2.5 bg-white dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700/80 rounded-lg text-sm text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-all cursor-pointer shadow-sm"
+            className="w-full sm:w-auto px-3.5 py-2.5 bg-white dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700/80 rounded-lg text-sm text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-all cursor-pointer shadow-sm"
           >
             <option value="ALL">All Districts ({filterOptions.districts.length})</option>
             {filterOptions.districts.map((d) => (
@@ -620,37 +621,40 @@ export default function BusinessListClient({
               setSelectedLocationStatus(e.target.value as any);
               setCurrentPage(1);
             }}
-            className="px-3.5 py-2.5 bg-white dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700/80 rounded-lg text-sm text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-all cursor-pointer shadow-sm"
+            className="w-full sm:w-auto px-3.5 py-2.5 bg-white dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700/80 rounded-lg text-sm text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-all cursor-pointer shadow-sm"
           >
             <option value="ALL">All Locations</option>
             <option value="READY">Ready on Map (Geocoded)</option>
             <option value="NEEDS_LOCATION">Needs Location</option>
           </select>
 
-          {/* Active / Archive Toggle */}
-          <button
-            onClick={() => {
-              setShowArchived(!showArchived);
-              setCurrentPage(1);
-            }}
-            className={`px-3.5 py-2.5 rounded-lg text-sm font-medium border transition-all ${
-              showArchived
-                ? "bg-blue-600 text-white border-blue-500 shadow-md shadow-blue-600/30"
-                : "bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700"
-            }`}
-          >
-            {showArchived ? "Showing Archived" : "Show Archived"}
-          </button>
-
-          {/* Add Business Button (Protected) */}
-          {canAddBusiness && (
+          {/* Action Buttons Row (Full width sharing row on mobile) */}
+          <div className="flex items-center gap-2.5 w-full sm:w-auto [&>button]:flex-1 sm:[&>button]:flex-none sm:[&>button]:w-auto">
+            {/* Active / Archive Toggle */}
             <button
-              onClick={openAddModal}
-              className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-semibold shadow-md shadow-blue-600/30 transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer"
+              onClick={() => {
+                setShowArchived(!showArchived);
+                setCurrentPage(1);
+              }}
+              className={`justify-center px-3.5 py-2.5 rounded-lg text-sm font-medium border transition-all text-center flex items-center ${
+                showArchived
+                  ? "bg-blue-600 text-white border-blue-500 shadow-md shadow-blue-600/30"
+                  : "bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700"
+              }`}
             >
-              <span>+</span> Add Business
+              {showArchived ? "Showing Archived" : "Show Archived"}
             </button>
-          )}
+
+            {/* Add Business Button (Protected) */}
+            {canAddBusiness && (
+              <button
+                onClick={openAddModal}
+                className="justify-center px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-semibold shadow-md shadow-blue-600/30 transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer text-center"
+              >
+                <span>+</span> Add Business
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Filter Summary & Count */}
@@ -679,9 +683,9 @@ export default function BusinessListClient({
         </div>
       </div>
 
-      {/* Businesses Table */}
-      <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/40 shadow-sm">
-        <table className="w-full text-left border-collapse text-sm">
+      {/* Businesses Table — Desktop View (md:) */}
+      <div className="hidden md:block overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/40 shadow-sm">
+        <table className="w-full min-w-[850px] text-left border-collapse text-sm">
           <thead>
             <tr className="bg-slate-50 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">
               <th className="px-4 py-3.5 min-w-50">Business Name</th>
@@ -763,6 +767,113 @@ export default function BusinessListClient({
             )}
           </tbody>
         </table>
+      </div>
+
+      {/* Businesses Mobile Cards View (< md) */}
+      <div className="block md:hidden space-y-3">
+        {paginatedBusinesses.length === 0 ? (
+          <div className="p-8 text-center text-slate-500 font-medium bg-white dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800 text-sm">
+            No businesses matching current filters.
+          </div>
+        ) : (
+          paginatedBusinesses.map((b) => (
+            <div
+              key={b.id}
+              className="p-4 rounded-xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900/80 shadow-xs space-y-3"
+            >
+              {/* Header: Category / District & Order Count */}
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-200/60 dark:border-blue-500/20 truncate">
+                    {b.category || "General"}
+                  </span>
+                  <span className="text-slate-300 dark:text-slate-700">•</span>
+                  <span className="text-xs text-slate-500 dark:text-slate-400 font-medium truncate">
+                    {b.district || "Dhaka"}
+                  </span>
+                </div>
+
+                <span
+                  className={`shrink-0 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
+                    b.orderCount > 0
+                      ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200/80 dark:border-emerald-500/20"
+                      : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700"
+                  }`}
+                >
+                  <span>{b.orderCount}</span>
+                  <span className="font-normal text-[11px]">orders</span>
+                </span>
+              </div>
+
+              {/* Business Name & Area */}
+              <div>
+                <Link
+                  href={`/dashboard/businesses/${b.id}`}
+                  className="font-bold text-base text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 transition-colors line-clamp-1 block"
+                  title={b.name}
+                >
+                  {b.name}
+                </Link>
+                {b.area && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1 mt-0.5">
+                    {b.area}
+                  </p>
+                )}
+              </div>
+
+              {/* Phone & GPS Coordinates Status */}
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs">
+                <div className="text-slate-600 dark:text-slate-300 font-mono">
+                  {b.phoneRaw ? (
+                    <span className="flex items-center gap-1.5">
+                      <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span>{b.phoneRaw}</span>
+                    </span>
+                  ) : (
+                    <span className="text-slate-400 italic">No phone</span>
+                  )}
+                </div>
+
+                <div>
+                  {b.latitude != null && b.longitude != null ? (
+                    <span className="inline-flex items-center gap-1 font-mono text-[11px] text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-200/60 dark:border-emerald-500/20">
+                      <MapPin className="w-3 h-3 text-emerald-500" />
+                      <span>Mapped</span>
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 px-2 py-0.5 rounded border border-amber-200/60 dark:border-amber-500/20">
+                      <span>⚠️ Pin needed</span>
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Bottom Actions: View Business + 3-Dot Action Menu */}
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2">
+                <Link
+                  href={`/dashboard/businesses/${b.id}`}
+                  className="flex-1 justify-center inline-flex items-center gap-1 px-3 py-2 bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 text-blue-700 dark:text-blue-300 font-semibold text-xs rounded-xl border border-blue-200/80 dark:border-blue-500/30 transition-all active:scale-95 shadow-2xs"
+                >
+                  <span>View Details</span>
+                  <span aria-hidden="true">→</span>
+                </Link>
+
+                <button
+                  type="button"
+                  onClick={(e) => handleToggleActionMenu(e, b)}
+                  className={`p-2 rounded-xl border transition-all cursor-pointer ${
+                    openActionBusiness?.id === b.id
+                      ? "bg-slate-100 dark:bg-slate-800 text-blue-600 dark:text-blue-400 border-slate-300 dark:border-slate-700 shadow-sm"
+                      : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/70 border-slate-200 dark:border-slate-800"
+                  }`}
+                  title="Actions"
+                >
+                  <MoreVertical className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ))
+        )}
       </div>
 
       {/* Pagination Controls */}

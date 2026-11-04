@@ -42,6 +42,7 @@ export default function GeoapifyMapClient({
   canAddBusiness = true,
 }: GeoapifyMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapCanvasRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
   const clientMarkersRef = useRef<any[]>([]);
   const prospectMarkersRef = useRef<any[]>([]);
@@ -61,6 +62,7 @@ export default function GeoapifyMapClient({
   const [selectedPoint, setSelectedPoint] = useState<UnifiedMapPoint | null>(null);
   const [routeInfo, setRouteInfo] = useState<{ distanceKm: number; durationMin: number } | null>(null);
   const [isRouting, setIsRouting] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Live Prospects / Leads State (Red & Gray Markers)
   const [prospects, setProspects] = useState<RestaurantProspect[]>(initialProspects || []);
@@ -498,6 +500,90 @@ export default function GeoapifyMapClient({
     };
   }, []);
 
+  // True Fullscreen Toggle Handler (Native Screen API + CSS Stacking Override)
+  const handleToggleFullscreen = async () => {
+    if (!isFullscreen) {
+      setIsFullscreen(true);
+      document.body.classList.add("map-fullscreen-active");
+      const el = mapCanvasRef.current;
+      if (el && !document.fullscreenElement) {
+        try {
+          if (el.requestFullscreen) {
+            await el.requestFullscreen();
+          } else if ((el as any).webkitRequestFullscreen) {
+            await (el as any).webkitRequestFullscreen();
+          }
+        } catch (err) {
+          console.warn("Native fullscreen request failed, using CSS fallback", err);
+        }
+      }
+    } else {
+      setIsFullscreen(false);
+      document.body.classList.remove("map-fullscreen-active");
+      if (document.fullscreenElement) {
+        try {
+          if (document.exitFullscreen) {
+            await document.exitFullscreen();
+          } else if ((document as any).webkitExitFullscreen) {
+            await (document as any).webkitExitFullscreen();
+          }
+        } catch (err) {
+          console.warn("Native exit fullscreen failed", err);
+        }
+      }
+    }
+  };
+
+  // Synchronize native fullscreen changes & Escape key
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const isNativeFull = Boolean(document.fullscreenElement || (document as any).webkitFullscreenElement);
+      if (!isNativeFull && isFullscreen) {
+        setIsFullscreen(false);
+        document.body.classList.remove("map-fullscreen-active");
+      }
+      setTimeout(() => {
+        if (mapInstanceRef.current && typeof mapInstanceRef.current.resize === "function") {
+          mapInstanceRef.current.resize();
+        }
+        window.dispatchEvent(new Event("resize"));
+      }, 100);
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isFullscreen) {
+        handleToggleFullscreen();
+      }
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+    window.addEventListener("keydown", handleKeyDown);
+
+    const timer1 = setTimeout(() => {
+      if (mapInstanceRef.current && typeof mapInstanceRef.current.resize === "function") {
+        mapInstanceRef.current.resize();
+      }
+      window.dispatchEvent(new Event("resize"));
+    }, 60);
+
+    const timer2 = setTimeout(() => {
+      if (mapInstanceRef.current && typeof mapInstanceRef.current.resize === "function") {
+        mapInstanceRef.current.resize();
+      }
+      window.dispatchEvent(new Event("resize"));
+    }, 250);
+
+    return () => {
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
+      window.removeEventListener("keydown", handleKeyDown);
+      document.body.classList.remove("map-fullscreen-active");
+    };
+  }, [isFullscreen]);
+
   // Helper to execute Geoapify route calculation
   const executeGeoapifyRoute = async (startLat: number, startLng: number, pt: UnifiedMapPoint) => {
     const map = mapInstanceRef.current;
@@ -750,6 +836,34 @@ export default function GeoapifyMapClient({
         }
       });
 
+      // View Business Link inside popup (for green ordered clients or archived clients)
+      if (isGreen || isGray) {
+        const viewLink = document.createElement("a");
+        viewLink.href = `/dashboard/businesses/${pt.id}`;
+        viewLink.className = "map-popup-view-btn";
+        viewLink.style.cssText =
+          "width: 100%; padding: 8px 12px; background: #10b981; color: #ffffff !important; border: none; border-radius: 9px; font-size: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 6px rgba(16, 185, 129, 0.35); text-decoration: none; box-sizing: border-box; transition: all 0.15s ease; margin-bottom: 6px; margin-top: 4px;";
+        viewLink.innerHTML = `<span>🏢</span><span>View Business</span><span>→</span>`;
+        viewLink.onmouseenter = () => {
+          viewLink.style.background = "#059669";
+        };
+        viewLink.onmouseleave = () => {
+          viewLink.style.background = "#10b981";
+        };
+        viewLink.onclick = (e) => {
+          if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+          e.preventDefault();
+          popup.remove();
+          if (activePopupRef.current === popup) {
+            activePopupRef.current = null;
+          }
+          if (document.fullscreenElement) { try { document.exitFullscreen(); } catch (err) {} }
+          document.body.classList.remove("map-fullscreen-active");
+          router.push(`/dashboard/businesses/${pt.id}`);
+        };
+        popupContainer.appendChild(viewLink);
+      }
+
       // Route Action Button inside popup
       const routeBtn = document.createElement("button");
       routeBtn.type = "button";
@@ -935,6 +1049,7 @@ export default function GeoapifyMapClient({
       />
 
       {/* Filter and Overview Controls with Autocomplete Dropdown */}
+      <div className={isFullscreen ? "hidden" : "space-y-4"}>
       <BusinessMapFilters
         filters={filters}
         onChange={handleFiltersChange}
@@ -951,6 +1066,7 @@ export default function GeoapifyMapClient({
           red: redCount,
         }}
       />
+      </div>
 
       {/* Notification banner */}
       {(scanMessage || conversionSuccess || locationError) && (
@@ -972,10 +1088,19 @@ export default function GeoapifyMapClient({
       {/* Map + Sidebar Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-4 min-h-130">
         {/* Map Canvas */}
-        <div className="relative rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 shadow-lg min-h-110 sm:min-h-135">
+        <div
+          ref={mapCanvasRef}
+          className={`relative rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 shadow-lg min-h-110 sm:min-h-135 transition-all ${
+            isFullscreen
+              ? "map-canvas-fullscreen"
+              : ""
+          }`}
+        >
           <div
             ref={mapContainerRef}
-            className="w-full h-full min-h-110 sm:min-h-135 bg-slate-100 dark:bg-slate-900"
+            className={`w-full bg-slate-100 dark:bg-slate-900 transition-all ${
+              isFullscreen ? "h-screen min-h-screen" : "h-full min-h-110 sm:min-h-135"
+            }`}
           />
 
           {/* Floating Action Button: Scan Nearby Area */}
@@ -1048,9 +1173,48 @@ export default function GeoapifyMapClient({
             )}
           </button>
 
+          {/* Top-Right: Exit Fullscreen button (only shown when in fullscreen mode; mobile shows icon only) */}
+          {isFullscreen && (
+            <button
+              type="button"
+              onClick={handleToggleFullscreen}
+              className="absolute top-4 right-4 z-30 h-10 sm:h-auto px-3 sm:px-3.5 py-2 sm:py-2.5 rounded-xl bg-slate-900/95 hover:bg-slate-800 text-white border border-slate-700 shadow-2xl backdrop-blur-md text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-95"
+              title="Exit Fullscreen (Esc)"
+            >
+              <span className="text-rose-400 font-bold text-sm">✕</span>
+              <span className="hidden sm:inline">Exit Fullscreen</span>
+              <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] bg-slate-800 text-slate-300 rounded border border-slate-700">ESC</kbd>
+            </button>
+          )}
+
+          {/* Bottom-Left: Enter Fullscreen Button (hidden when in fullscreen mode; mobile shows icon only) */}
+          {!isFullscreen && (
+            <div className="absolute bottom-4 left-4 z-20 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleToggleFullscreen}
+                className="h-10 sm:h-11 px-3 sm:px-3.5 rounded-xl bg-white/95 dark:bg-slate-900/95 hover:bg-white dark:hover:bg-slate-900 border border-slate-200 dark:border-slate-700/80 text-slate-800 dark:text-slate-100 shadow-xl backdrop-blur-md transition-all flex items-center justify-center gap-2 text-xs font-bold cursor-pointer active:scale-95"
+                title="Full Screen Map"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0"
+                >
+                  <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+                </svg>
+                <span className="hidden sm:inline font-semibold">Full Screen</span>
+              </button>
+            </div>
+          )}
+
           {/* Floating Route Information Card */}
           {routeInfo && (
-            <div className="absolute bottom-4 left-4 right-16 sm:right-auto z-10 p-4 rounded-xl bg-slate-900/95 backdrop-blur-md border border-blue-500/40 shadow-2xl sm:max-w-xs space-y-2 text-white">
+            <div className="absolute bottom-18 left-4 right-16 sm:right-auto z-20 p-4 rounded-xl bg-slate-900/95 backdrop-blur-md border border-blue-500/40 shadow-2xl sm:max-w-xs space-y-2 text-white">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-blue-400">🚗 Field Route &amp; ETA</span>
                 <button
@@ -1073,10 +1237,96 @@ export default function GeoapifyMapClient({
               </p>
             </div>
           )}
+          {/* Floating Business Card in Fullscreen Mode */}
+          {isFullscreen && selectedPoint && (
+            <div className="absolute bottom-18 right-4 z-20 max-w-sm w-[calc(100%-2rem)] sm:w-80 p-4 rounded-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 shadow-2xl space-y-3 animate-fade-in">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span
+                      className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                        selectedPoint.markerColor === "green"
+                          ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.7)]"
+                          : selectedPoint.markerColor === "gray" || selectedPoint.isArchived
+                          ? "bg-slate-400"
+                          : "bg-rose-500"
+                      }`}
+                    />
+                    <h4 className="font-bold text-slate-900 dark:text-slate-100 text-sm truncate">
+                      {selectedPoint.name}
+                    </h4>
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                    {selectedPoint.category} • {selectedPoint.address}
+                  </p>
+                  <div className="mt-1">
+                    <span
+                      className={`font-semibold px-2 py-0.5 rounded-full text-[10px] inline-block ${
+                        selectedPoint.markerColor === "green"
+                          ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20"
+                          : selectedPoint.markerColor === "gray" || selectedPoint.isArchived
+                          ? "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700"
+                          : "bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20"
+                      }`}
+                    >
+                      {selectedPoint.markerColor === "green"
+                        ? `🟢 Ordered (${selectedPoint.orderCount} Orders)`
+                        : selectedPoint.markerColor === "gray" || selectedPoint.isArchived
+                        ? `📁 Archived (${selectedPoint.orderCount} Past Orders)`
+                        : selectedPoint.isClient
+                        ? "🔴 In DB (0 Orders)"
+                        : "🔴 New Prospect"}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedPoint(null)}
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                  title="Close card"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {selectedPoint.markerColor === "green" ? (
+                <Link
+                  href={`/dashboard/businesses/${selectedPoint.id}`}
+                  className="w-full py-2.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold text-center transition-all flex items-center justify-center gap-1.5 shadow-md shadow-emerald-600/30 cursor-pointer"
+                >
+                  <span>🏢 View Business &amp; Orders</span>
+                  <span>→</span>
+                </Link>
+              ) : selectedPoint.markerColor === "gray" || selectedPoint.isArchived ? (
+                <Link
+                  href={`/dashboard/businesses/${selectedPoint.id}`}
+                  className="w-full py-2.5 px-3 bg-slate-700 hover:bg-slate-600 text-white rounded-xl text-xs font-semibold text-center transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <span>📁 View Historical Records</span>
+                  <span>→</span>
+                </Link>
+              ) : canAddBusiness ? (
+                <button
+                  onClick={() => setAddFromMapPreset({
+                    name: selectedPoint.name,
+                    category: selectedPoint.category,
+                    address: selectedPoint.address,
+                    area: selectedPoint.area,
+                    district: selectedPoint.district,
+                    latitude: selectedPoint.latitude,
+                    longitude: selectedPoint.longitude,
+                    phoneRaw: selectedPoint.phoneRaw,
+                  })}
+                  className="w-full py-2.5 px-3 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold text-center transition-all flex items-center justify-center gap-1.5 shadow-md shadow-rose-600/30 cursor-pointer"
+                >
+                  <span>➕ Convert to Client</span>
+                </button>
+              ) : null}
+            </div>
+          )}
         </div>
 
         {/* Sidebar: Selected Pin Details & Prospect Conversion */}
-        <div className="flex flex-col gap-4">
+        <div className={`flex flex-col gap-4 ${isFullscreen ? "hidden" : ""}` }>
           <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
               Client Account Details

@@ -122,51 +122,64 @@ export default function BusinessDetailClient({
       </div>
 
       {/* Header Card */}
-      <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-3">
+      <div className="bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm space-y-5 sm:space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+          <div className="space-y-2 min-w-0 flex-1">
+            {/* Status & Category Badge Row (never squishes on mobile) */}
+            <div className="flex items-center gap-2 flex-wrap">
               <span
-                className={`w-3 h-3 rounded-full ${
-                  business.isActive
-                    ? "bg-emerald-500 shadow-[0_0_12px_rgba(34,197,94,0.6)]"
-                    : "bg-slate-400 dark:bg-slate-500"
-                }`}
-              />
-              <h1 className="text-2xl md:text-3xl font-bold text-slate-900 dark:text-slate-100">
-                {business.name}
-              </h1>
-              <span
-                className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border shrink-0 whitespace-nowrap ${
                   business.isActive
                     ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20"
                     : "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/20"
                 }`}
               >
-                {business.isActive ? "Active Account" : "Archived"}
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    business.isActive
+                      ? "bg-emerald-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]"
+                      : "bg-slate-400 dark:bg-slate-500"
+                  }`}
+                />
+                <span>{business.isActive ? "Active Account" : "Archived"}</span>
+              </span>
+
+              {business.category && (
+                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200/80 dark:border-slate-700/80 shrink-0 whitespace-nowrap">
+                  {business.category}
+                </span>
+              )}
+
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-200/60 dark:border-blue-500/20 shrink-0 whitespace-nowrap">
+                <MapPin className="w-3 h-3 text-blue-500" />
+                <span>{business.district || "Dhaka"}</span>
               </span>
             </div>
 
-            {/* Clean Subtitle */}
-            <p className="text-slate-500 dark:text-slate-400 mt-1.5 text-sm">
-              <span className="font-semibold text-slate-700 dark:text-slate-300">
-                {business.category || "General Category"}
-              </span>
-              {" • "}
-              <span className="font-medium text-blue-600 dark:text-blue-400">
-                District: {business.district || "Dhaka"}
-              </span>
-            </p>
+            {/* Business Title */}
+            <h1 className="text-xl sm:text-2xl md:text-3xl font-extrabold text-slate-900 dark:text-slate-100 tracking-tight leading-snug break-words">
+              {business.name}
+            </h1>
+
+            {/* Location Subtitle */}
+            {business.area && (
+              <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 truncate">
+                <span className="font-medium text-slate-600 dark:text-slate-300">
+                  {business.area}
+                </span>
+              </p>
+            )}
           </div>
 
-          <div className="flex items-center gap-2.5">
+          {/* Action Buttons: 2-column balanced grid on mobile, inline-flex on sm+ */}
+          <div className="grid grid-cols-2 gap-2.5 w-full sm:flex sm:items-center sm:w-auto pt-1 sm:pt-0">
             {business.isActive ? (
               <button
                 type="button"
                 onClick={() => setIsOrderModalOpen(true)}
-                className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-semibold shadow-md shadow-blue-600/25 transition-all active:scale-95 cursor-pointer"
+                className="w-full sm:w-auto justify-center inline-flex items-center gap-1.5 px-3.5 sm:px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs sm:text-sm font-semibold shadow-md shadow-blue-600/25 transition-all active:scale-95 cursor-pointer whitespace-nowrap"
               >
-                <Plus className="w-4 h-4" />
+                <Plus className="w-4 h-4 shrink-0" />
                 <span>New Order</span>
               </button>
             ) : (
@@ -174,22 +187,22 @@ export default function BusinessDetailClient({
                 type="button"
                 onClick={handleRestore}
                 disabled={isPending}
-                className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-semibold shadow-md shadow-emerald-600/25 transition-all active:scale-95 cursor-pointer disabled:opacity-60"
+                className="w-full sm:w-auto justify-center inline-flex items-center gap-1.5 px-3.5 sm:px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs sm:text-sm font-semibold shadow-md shadow-emerald-600/25 transition-all active:scale-95 cursor-pointer disabled:opacity-60 whitespace-nowrap"
                 title="Restore this business to active directory to record orders"
               >
-                <RotateCcw className={`w-4 h-4 ${isPending ? "animate-spin" : ""}`} />
+                <RotateCcw className={`w-4 h-4 shrink-0 ${isPending ? "animate-spin" : ""}`} />
                 <span>Restore Account</span>
               </button>
             )}
 
             {/* View on Map Dropdown */}
-            <div className="relative" ref={mapDropdownRef}>
+            <div className="relative w-full sm:w-auto" ref={mapDropdownRef}>
               <button
                 type="button"
                 onClick={() => setIsMapDropdownOpen((prev) => !prev)}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-semibold transition-all cursor-pointer shadow-sm active:scale-95"
+                className="w-full sm:w-auto justify-center inline-flex items-center gap-2 px-3 sm:px-4 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm font-semibold transition-all cursor-pointer shadow-sm active:scale-95 whitespace-nowrap"
               >
-                <MapPin className="w-4 h-4 text-rose-500" />
+                <MapPin className="w-4 h-4 text-rose-500 shrink-0" />
                 <span>View on Map</span>
                 <ChevronDown
                   className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${
@@ -200,7 +213,7 @@ export default function BusinessDetailClient({
 
               {/* Dropdown Menu */}
               {isMapDropdownOpen && (
-                <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl p-2 z-50 animate-fade-in space-y-1">
+                <div className="absolute right-0 mt-2 w-72 max-w-[calc(100vw-2.5rem)] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl p-2 z-50 animate-fade-in space-y-1">
                   <div className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                     Select Map Provider
                   </div>
@@ -424,7 +437,7 @@ export default function BusinessDetailClient({
         </div>
       </div>
 
-      {/* Orders History Table */}
+      {/* Orders History Section */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg md:text-xl font-bold text-slate-900 dark:text-slate-100">
@@ -437,16 +450,17 @@ export default function BusinessDetailClient({
           )}
         </div>
 
-        <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 shadow-sm">
-          <table className="w-full text-left border-collapse text-sm">
+        {/* Desktop View: Full Data Table (visible on md: and above) */}
+        <div className="hidden md:block overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 shadow-sm">
+          <table className="w-full min-w-[650px] text-left border-collapse text-sm">
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">
-                <th className="px-4 py-3.5">Order ID</th>
-                <th className="px-4 py-3.5">Date</th>
-                <th className="px-4 py-3.5">Status</th>
+                <th className="px-4 py-3.5 whitespace-nowrap">Order ID</th>
+                <th className="px-4 py-3.5 whitespace-nowrap">Date</th>
+                <th className="px-4 py-3.5 whitespace-nowrap">Status</th>
                 <th className="px-4 py-3.5">Line Items</th>
-                <th className="px-4 py-3.5 text-right">Total (BDT)</th>
-                <th className="px-4 py-3.5 text-right">Action</th>
+                <th className="px-4 py-3.5 text-right whitespace-nowrap">Total (BDT)</th>
+                <th className="px-4 py-3.5 text-right whitespace-nowrap">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/40">
@@ -459,7 +473,7 @@ export default function BusinessDetailClient({
               ) : (
                 business.orders.map((o) => (
                   <tr key={o.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/30 transition-colors">
-                    <td className="px-4 py-3.5 font-mono">
+                    <td className="px-4 py-3.5 font-mono whitespace-nowrap">
                       <Link
                         href={`/dashboard/orders/${o.id}`}
                         className="font-semibold text-blue-600 dark:text-blue-400 hover:underline text-xs"
@@ -467,10 +481,10 @@ export default function BusinessDetailClient({
                         {o.externalOrderId || o.id.slice(0, 8)}
                       </Link>
                     </td>
-                    <td className="px-4 py-3.5 text-slate-600 dark:text-slate-300">
+                    <td className="px-4 py-3.5 text-slate-600 dark:text-slate-300 whitespace-nowrap text-xs">
                       {o.orderedAt ? new Date(o.orderedAt).toLocaleDateString() : <span className="text-slate-400">—</span>}
                     </td>
-                    <td className="px-4 py-3.5">
+                    <td className="px-4 py-3.5 whitespace-nowrap">
                       <span
                         className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium border ${
                           o.status === "COMPLETED"
@@ -502,12 +516,12 @@ export default function BusinessDetailClient({
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3.5 text-right font-semibold text-slate-900 dark:text-slate-100 font-mono text-xs tabular-nums">
+                    <td className="px-4 py-3.5 text-right font-semibold text-slate-900 dark:text-slate-100 font-mono text-xs tabular-nums whitespace-nowrap">
                       {o.totalBdt != null && o.totalBdt > 0
                         ? `BDT ${o.totalBdt.toLocaleString("en-US", { minimumFractionDigits: 2 })}`
-                        : ""}
+                        : "—"}
                     </td>
-                    <td className="px-4 py-3.5 text-right">
+                    <td className="px-4 py-3.5 text-right whitespace-nowrap">
                       <Link
                         href={`/dashboard/orders/${o.id}`}
                         className="px-2.5 py-1 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-md text-xs font-medium transition-all shadow-sm"
@@ -520,6 +534,124 @@ export default function BusinessDetailClient({
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Mobile View: Modern Order Cards (visible on screens < md) */}
+        <div className="block md:hidden space-y-3">
+          {business.orders.length === 0 ? (
+            <div className="p-8 text-center text-slate-400 dark:text-slate-500 font-medium bg-white dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800 text-sm">
+              No orders recorded for this business yet.
+            </div>
+          ) : (
+            business.orders.map((o) => (
+              <div
+                key={o.id}
+                className="p-4 rounded-xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900/80 shadow-xs space-y-3"
+              >
+                {/* Header: Order ID + Status Badge */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Link
+                      href={`/dashboard/orders/${o.id}`}
+                      className="text-xs font-mono font-bold text-blue-600 dark:text-blue-400 hover:underline truncate"
+                    >
+                      #{o.externalOrderId || o.id.slice(0, 8)}
+                    </Link>
+                    <span className="text-slate-300 dark:text-slate-700">•</span>
+                    <span className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                      {o.orderedAt
+                        ? new Date(o.orderedAt).toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                          })
+                        : "No date"}
+                    </span>
+                  </div>
+
+                  <span
+                    className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border ${
+                      o.status === "COMPLETED"
+                        ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20"
+                        : o.status === "CANCELLED"
+                        ? "bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-500/20"
+                        : "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/20"
+                    }`}
+                  >
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        o.status === "COMPLETED"
+                          ? "bg-emerald-500"
+                          : o.status === "CANCELLED"
+                          ? "bg-rose-500"
+                          : "bg-amber-500"
+                      }`}
+                    />
+                    {o.status === "COMPLETED"
+                      ? "Delivered"
+                      : o.status === "CANCELLED"
+                      ? "Cancelled"
+                      : "Pending"}
+                  </span>
+                </div>
+
+                {/* Line Items or Direct Total Badge */}
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80">
+                  {o.items.length > 0 ? (
+                    <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 space-y-1.5">
+                      <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                        Line Items ({o.items.length})
+                      </div>
+                      <div className="space-y-1">
+                        {o.items.map((it) => (
+                          <div
+                            key={it.id}
+                            className="flex justify-between items-center text-xs text-slate-700 dark:text-slate-300"
+                          >
+                            <span className="truncate pr-2">
+                              • {it.name} <span className="text-slate-400">× {it.quantity}</span>
+                            </span>
+                            <span className="font-mono text-slate-500 dark:text-slate-400 shrink-0">
+                              BDT {it.unitPriceBdt}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-slate-50 dark:bg-slate-800/70 text-slate-600 dark:text-slate-400 border border-slate-200/80 dark:border-slate-700/80">
+                        <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                        Total Only (Direct Order)
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer: Total Amount + Action Button */}
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+                  <div>
+                    <div className="text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500 tracking-wider">
+                      Total Amount
+                    </div>
+                    <div className="text-base font-bold font-mono text-slate-900 dark:text-slate-100">
+                      {o.totalBdt != null && o.totalBdt > 0
+                        ? `BDT ${o.totalBdt.toLocaleString("en-US", { minimumFractionDigits: 2 })}`
+                        : "—"}
+                    </div>
+                  </div>
+
+                  <Link
+                    href={`/dashboard/orders/${o.id}`}
+                    className="inline-flex items-center gap-1 px-3.5 py-2 bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 text-blue-700 dark:text-blue-300 font-semibold text-xs rounded-xl border border-blue-200/80 dark:border-blue-500/30 transition-all active:scale-95 shadow-2xs"
+                  >
+                    <span>Details</span>
+                    <span aria-hidden="true">→</span>
+                  </Link>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
 

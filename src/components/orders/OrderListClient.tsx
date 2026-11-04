@@ -230,9 +230,9 @@ export default function OrderListClient({
   return (
     <div className="space-y-6">
       {/* Action / Search Bar */}
-      <div className="bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-sm space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex-1 min-w-60">
+      <div className="bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-xl p-4 sm:p-5 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-between gap-3">
+          <div className="w-full sm:flex-1 sm:min-w-60">
             <input
               type="text"
               placeholder="Search by order ID, business name, or area…"
@@ -251,7 +251,7 @@ export default function OrderListClient({
               setSelectedStatus(e.target.value);
               setCurrentPage(1);
             }}
-            className="px-3.5 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-all cursor-pointer shadow-sm"
+            className="w-full sm:w-auto px-3.5 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-all cursor-pointer shadow-sm"
           >
             <option value="ALL">All Statuses</option>
             <option value="COMPLETED">Delivered</option>
@@ -259,23 +259,25 @@ export default function OrderListClient({
             <option value="CANCELLED">Cancelled</option>
           </select>
 
-          {canImport && (
-            <Link
-              href="/dashboard/imports"
-              className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-semibold shadow-sm transition-all flex items-center gap-1.5 active:scale-95"
-            >
-              <span>📥</span> Import Excel
-            </Link>
-          )}
+          <div className="flex items-center gap-2.5 w-full sm:w-auto [&>*]:flex-1 sm:[&>*]:flex-none sm:[&>*]:w-auto">
+            {canImport && (
+              <Link
+                href="/dashboard/imports"
+                className="justify-center px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-semibold shadow-sm transition-all flex items-center gap-1.5 active:scale-95 text-center"
+              >
+                <span>📥</span> Import Excel
+              </Link>
+            )}
 
-          {canRecordOrder && (
-            <button
-              onClick={openAddModal}
-              className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-semibold shadow-sm transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer"
-            >
-              <span>+</span> Record New Order
-            </button>
-          )}
+            {canRecordOrder && (
+              <button
+                onClick={openAddModal}
+                className="justify-center px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-semibold shadow-sm transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer text-center"
+              >
+                <span>+</span> Record New Order
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="pt-3 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
@@ -283,9 +285,9 @@ export default function OrderListClient({
         </div>
       </div>
 
-      {/* Orders Table */}
-      <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/40 shadow-sm">
-        <table className="w-full text-left border-collapse text-sm">
+      {/* Orders Table — Desktop View (md:) */}
+      <div className="hidden md:block overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/40 shadow-sm">
+        <table className="w-full min-w-[850px] text-left border-collapse text-sm">
           <thead>
             <tr className="bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">
               <th className="px-4 py-3.5 w-32.5 whitespace-nowrap">Order ID</th>
@@ -383,6 +385,123 @@ export default function OrderListClient({
             )}
           </tbody>
         </table>
+      </div>
+
+      {/* Orders Mobile Card View (< md) */}
+      <div className="block md:hidden space-y-3">
+        {paginatedOrders.length === 0 ? (
+          <div className="p-8 text-center text-slate-400 dark:text-slate-500 font-medium bg-white dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800 text-sm">
+            No orders found.
+          </div>
+        ) : (
+          paginatedOrders.map((o) => (
+            <div
+              key={o.id}
+              className="p-4 rounded-xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900/80 shadow-xs space-y-3"
+            >
+              {/* Header: Order ID + Status */}
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Link
+                    href={`/dashboard/orders/${o.id}`}
+                    className="text-xs font-mono font-bold text-blue-600 dark:text-blue-400 hover:underline truncate"
+                  >
+                    #{o.externalOrderId || o.id.slice(0, 8)}
+                  </Link>
+                  <span className="text-slate-300 dark:text-slate-700">•</span>
+                  <span className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                    {o.orderedAt ? new Date(o.orderedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "No date"}
+                  </span>
+                </div>
+
+                <span
+                  className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border ${
+                    o.status === "COMPLETED"
+                      ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20"
+                      : o.status === "CANCELLED"
+                      ? "bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-500/20"
+                      : "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/20"
+                  }`}
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      o.status === "COMPLETED"
+                        ? "bg-emerald-500"
+                        : o.status === "CANCELLED"
+                        ? "bg-rose-500"
+                        : "bg-amber-500"
+                    }`}
+                  />
+                  {o.status === "COMPLETED"
+                    ? "Delivered"
+                    : o.status === "CANCELLED"
+                    ? "Cancelled"
+                    : "Pending"}
+                </span>
+              </div>
+
+              {/* Business Name & Area */}
+              <div className="space-y-1">
+                <Link
+                  href={`/dashboard/businesses/${o.businessId}`}
+                  className="font-bold text-sm text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 transition-colors line-clamp-1"
+                >
+                  {o.businessName}
+                </Link>
+                <div className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1">
+                  {o.businessArea}
+                </div>
+              </div>
+
+              {/* Items Summary */}
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+                <div>
+                  {o.itemCount > 0 ? (
+                    <span className="text-xs text-slate-600 dark:text-slate-300 font-medium">
+                      📦 {o.itemCount} line item{o.itemCount > 1 ? "s" : ""}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-50 dark:bg-slate-800/70 text-slate-600 dark:text-slate-400 border border-slate-200/80 dark:border-slate-700/80">
+                      Total Only (Direct)
+                    </span>
+                  )}
+                </div>
+
+                <div className="text-right">
+                  <div className="text-sm font-bold font-mono text-slate-900 dark:text-slate-100">
+                    {o.totalBdt != null && o.totalBdt > 0
+                      ? `BDT ${o.totalBdt.toLocaleString("en-US", { minimumFractionDigits: 2 })}`
+                      : "—"}
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2">
+                <Link
+                  href={`/dashboard/orders/${o.id}`}
+                  className="flex-1 justify-center inline-flex items-center gap-1 px-3 py-2 bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 text-blue-700 dark:text-blue-300 font-semibold text-xs rounded-xl border border-blue-200/80 dark:border-blue-500/30 transition-all active:scale-95 shadow-2xs"
+                >
+                  <span>Details</span>
+                  <span aria-hidden="true">→</span>
+                </Link>
+
+                <button
+                  type="button"
+                  onClick={(e) => handleToggleActionMenu(e, o)}
+                  className={`p-2 rounded-xl border transition-all ${
+                    openActionOrder?.id === o.id
+                      ? "bg-slate-100 dark:bg-slate-800 text-blue-600 dark:text-blue-400 border-slate-300 dark:border-slate-700 shadow-sm"
+                      : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/70 border-slate-200 dark:border-slate-800"
+                  }`}
+                  title="Actions"
+                >
+                  <MoreVertical className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ))
+        )}
       </div>
 
       {/* Pagination Controls */}

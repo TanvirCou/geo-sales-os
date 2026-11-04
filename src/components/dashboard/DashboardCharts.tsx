@@ -15,7 +15,10 @@ import {
   Building2,
   Sparkles,
   Layers,
+  Eye,
+  EyeOff,
 } from "lucide-react";
+import ConfidentialSpoiler from "@/components/ui/ConfidentialSpoiler";
 import {
   MonthlyTrendItem,
   DistrictSalesItem,
@@ -33,6 +36,19 @@ interface DashboardChartsProps {
   avgOrderValue: number;
 }
 
+function formatCompactBdt(amount: number): string {
+  if (amount == null || isNaN(amount)) return "৳0";
+  if (amount >= 1_000_000) {
+    const val = amount / 1_000_000;
+    return `৳${val.toFixed(val >= 10 ? 1 : 2)}M`;
+  }
+  if (amount >= 1_000) {
+    const val = amount / 1_000;
+    return `৳${val.toFixed(val >= 100 ? 0 : 1)}k`;
+  }
+  return `৳${amount.toLocaleString("en-US")}`;
+}
+
 export default function DashboardCharts({
   monthlyTrend,
   districtSales,
@@ -47,6 +63,30 @@ export default function DashboardCharts({
   const [trendMetric, setTrendMetric] = useState<"revenue" | "orders">("revenue");
   const [hoveredTrendIdx, setHoveredTrendIdx] = useState<number | null>(null);
   const [hoveredDistrictIdx, setHoveredDistrictIdx] = useState<number | null>(null);
+
+  // Confidential Data Masking (Privacy Mode) State — Default to true (fancy spoiler particle cloud)
+  const [isPrivacyActive, setIsPrivacyActive] = useState(true);
+  const [individualOverrides, setIndividualOverrides] = useState<Record<string, boolean>>({});
+
+  const isMasked = (key: string) => {
+    if (individualOverrides[key] !== undefined) {
+      return individualOverrides[key];
+    }
+    return isPrivacyActive;
+  };
+
+  const toggleMetric = (key: string) => {
+    setIndividualOverrides((prev) => ({
+      ...prev,
+      [key]: !isMasked(key),
+    }));
+  };
+
+  const togglePrivacyMode = () => {
+    const nextState = !isPrivacyActive;
+    setIsPrivacyActive(nextState);
+    setIndividualOverrides({});
+  };
 
   // Peak month calculation
   const peakMonth = monthlyTrend.reduce(
@@ -166,107 +206,179 @@ export default function DashboardCharts({
 
   return (
     <div className="space-y-8 animate-fade-in">
-      {/* ── Unified Executive KPI Command Bar (4 Core Metrics) ────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Metric 1: Total Revenue */}
-        <div className="group rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-5 shadow-sm hover:shadow-md transition-all hover:border-blue-500/30">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Gross Revenue
+      {/* ── Unified Executive KPI Command Bar (4 Core Metrics with Privacy Mode) ── */}
+      <div className="space-y-3">
+        {/* Header toolbar with Privacy Mode Toggle */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+              Executive KPI Overview
             </span>
-            <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-500/20 flex items-center justify-center transition-transform group-hover:scale-105">
-              <DollarSign className="w-5 h-5" />
-            </div>
+            <span className="hidden sm:inline-block text-[10px] px-2 py-0.5 rounded-full font-semibold bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-500/20">
+              Confidential Mode Supported
+            </span>
           </div>
-          <div className="mt-3">
-            <div className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-              {formatBDT(totalRevenue)}
-            </div>
-            <div className="mt-2 flex items-center justify-between text-xs">
-              <span className="font-mono text-slate-500 dark:text-slate-400">
-                ৳ {totalRevenue.toLocaleString("en-US")}
-              </span>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
-                <TrendingUp className="w-3 h-3" />
-                <span>Live Orders</span>
-              </span>
-            </div>
-          </div>
+
+          <button
+            type="button"
+            onClick={togglePrivacyMode}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-300 shadow-2xs transition-all cursor-pointer active:scale-95"
+            title={isPrivacyActive ? "Click to reveal all figures" : "Click to hide all confidential figures with particle spoiler"}
+          >
+            {isPrivacyActive ? (
+              <>
+                <Eye className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                <span>Reveal All Figures</span>
+              </>
+            ) : (
+              <>
+                <EyeOff className="w-3.5 h-3.5 text-slate-400" />
+                <span>Mask Confidential Figures</span>
+              </>
+            )}
+          </button>
         </div>
 
-        {/* Metric 2: Field Orders & Fulfillment */}
-        <div className="group rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-5 shadow-sm hover:shadow-md transition-all hover:border-blue-500/30">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Recorded Orders
-            </span>
-            <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-200/60 dark:border-blue-500/20 flex items-center justify-center transition-transform group-hover:scale-105">
-              <Package className="w-5 h-5" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Metric 1: Total Revenue */}
+          <div className="group rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-5 shadow-sm hover:shadow-md transition-all hover:border-emerald-500/30">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Gross Revenue
+              </span>
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-500/20 flex items-center justify-center transition-transform group-hover:scale-105">
+                <DollarSign className="w-5 h-5" />
+              </div>
+            </div>
+            <div className="mt-3">
+              <div className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+                <ConfidentialSpoiler
+                  hidden={isMasked("gross_rev")}
+                  onToggle={() => toggleMetric("gross_rev")}
+                  accentColor="#10b981"
+                >
+                  {formatBDT(totalRevenue)}
+                </ConfidentialSpoiler>
+              </div>
+              <div className="mt-2 flex items-center justify-between text-xs">
+                <span className="font-mono text-slate-500 dark:text-slate-400">
+                  <ConfidentialSpoiler
+                    hidden={isMasked("gross_rev_full")}
+                    onToggle={() => toggleMetric("gross_rev_full")}
+                    accentColor="#10b981"
+                  >
+                    ৳ {totalRevenue.toLocaleString("en-US")}
+                  </ConfidentialSpoiler>
+                </span>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
+                  <TrendingUp className="w-3 h-3" />
+                  <span>Live Orders</span>
+                </span>
+              </div>
             </div>
           </div>
-          <div className="mt-3">
-            <div className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-              {totalOrders.toLocaleString("en-US")}
-            </div>
-            <div className="mt-2 flex items-center justify-between text-xs">
-              <span className="text-slate-500 dark:text-slate-400">
-                Avg: <strong className="text-slate-700 dark:text-slate-200">{formatBDT(avgOrderValue)}</strong>
-              </span>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-500/20">
-                <CheckCircle2 className="w-3 h-3" />
-                <span>{completedPct}% Delivered</span>
-              </span>
-            </div>
-          </div>
-        </div>
 
-        {/* Metric 3: Client Business Network */}
-        <div className="group rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-5 shadow-sm hover:shadow-md transition-all hover:border-blue-500/30">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Registered Clients
-            </span>
-            <div className="w-10 h-10 rounded-xl bg-teal-50 dark:bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-200/60 dark:border-teal-500/20 flex items-center justify-center transition-transform group-hover:scale-105">
-              <Building2 className="w-5 h-5" />
+          {/* Metric 2: Field Orders & Fulfillment */}
+          <div className="group rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-5 shadow-sm hover:shadow-md transition-all hover:border-blue-500/30">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Recorded Orders
+              </span>
+              <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-200/60 dark:border-blue-500/20 flex items-center justify-center transition-transform group-hover:scale-105">
+                <Package className="w-5 h-5" />
+              </div>
+            </div>
+            <div className="mt-3">
+              <div className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+                <ConfidentialSpoiler
+                  hidden={isMasked("recorded_orders")}
+                  onToggle={() => toggleMetric("recorded_orders")}
+                  accentColor="#3b82f6"
+                >
+                  {totalOrders.toLocaleString("en-US")}
+                </ConfidentialSpoiler>
+              </div>
+              <div className="mt-2 flex items-center justify-between text-xs">
+                <span className="text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                  <span>Avg:</span>
+                  <strong className="text-slate-700 dark:text-slate-200 font-semibold">
+                    <ConfidentialSpoiler
+                      hidden={isMasked("avg_order")}
+                      onToggle={() => toggleMetric("avg_order")}
+                      accentColor="#3b82f6"
+                    >
+                      {formatBDT(avgOrderValue)}
+                    </ConfidentialSpoiler>
+                  </strong>
+                </span>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-500/20">
+                  <CheckCircle2 className="w-3 h-3" />
+                  <span>{completedPct}% Delivered</span>
+                </span>
+              </div>
             </div>
           </div>
-          <div className="mt-3">
-            <div className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-              {totalBusinesses.toLocaleString("en-US")}
-            </div>
-            <div className="mt-2 flex items-center justify-between text-xs">
-              <span className="text-slate-500 dark:text-slate-400">
-                {totalProducts} Catalog SKUs
-              </span>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-teal-50 dark:bg-teal-500/10 text-teal-700 dark:text-teal-400 border border-teal-200 dark:border-teal-500/20">
-                <span className="w-1.5 h-1.5 rounded-full bg-teal-500" />
-                <span>{totalBusinesses.toLocaleString("en-US")} Active Pins</span>
-              </span>
-            </div>
-          </div>
-        </div>
 
-        {/* Metric 4: Top Territory Market */}
-        <div className="group rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-5 shadow-sm hover:shadow-md transition-all hover:border-blue-500/30">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Primary Territory
-            </span>
-            <div className="w-10 h-10 rounded-xl bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-200/60 dark:border-purple-500/20 flex items-center justify-center transition-transform group-hover:scale-105">
-              <MapPin className="w-5 h-5" />
+          {/* Metric 3: Client Business Network */}
+          <div className="group rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-5 shadow-sm hover:shadow-md transition-all hover:border-teal-500/30">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Registered Clients
+              </span>
+              <div className="w-10 h-10 rounded-xl bg-teal-50 dark:bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-200/60 dark:border-teal-500/20 flex items-center justify-center transition-transform group-hover:scale-105">
+                <Building2 className="w-5 h-5" />
+              </div>
+            </div>
+            <div className="mt-3">
+              <div className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+                <ConfidentialSpoiler
+                  hidden={isMasked("registered_clients")}
+                  onToggle={() => toggleMetric("registered_clients")}
+                  accentColor="#14b8a6"
+                >
+                  {totalBusinesses.toLocaleString("en-US")}
+                </ConfidentialSpoiler>
+              </div>
+              <div className="mt-2 flex items-center justify-between text-xs">
+                <span className="text-slate-500 dark:text-slate-400">
+                  {totalProducts} Catalog SKUs
+                </span>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-teal-50 dark:bg-teal-500/10 text-teal-700 dark:text-teal-400 border border-teal-200 dark:border-teal-500/20">
+                  <span className="w-1.5 h-1.5 rounded-full bg-teal-500" />
+                  <span>{totalBusinesses.toLocaleString("en-US")} Active Pins</span>
+                </span>
+              </div>
             </div>
           </div>
-          <div className="mt-3">
-            <div className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight truncate">
-              {topDistrict ? topDistrict.district : "None"}
+
+          {/* Metric 4: Top Territory Market */}
+          <div className="group rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-5 shadow-sm hover:shadow-md transition-all hover:border-purple-500/30">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Primary Territory
+              </span>
+              <div className="w-10 h-10 rounded-xl bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-200/60 dark:border-purple-500/20 flex items-center justify-center transition-transform group-hover:scale-105">
+                <MapPin className="w-5 h-5" />
+              </div>
             </div>
-            <div className="mt-2 flex items-center justify-between text-xs">
-              <span className="text-slate-500 dark:text-slate-400 font-mono">
-                {topDistrict ? formatBDT(topDistrict.revenue) : "৳ 0"}
-              </span>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-500/20">
-                <span>{topDistrict ? topDistrict.percentage : 0}% Nat&apos;l Share</span>
-              </span>
+            <div className="mt-3">
+              <div className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight truncate">
+                {topDistrict ? topDistrict.district : "None"}
+              </div>
+              <div className="mt-2 flex items-center justify-between text-xs">
+                <span className="text-slate-500 dark:text-slate-400 font-mono">
+                  <ConfidentialSpoiler
+                    hidden={isMasked("territory_revenue")}
+                    onToggle={() => toggleMetric("territory_revenue")}
+                    accentColor="#a855f7"
+                  >
+                    {topDistrict ? formatBDT(topDistrict.revenue) : "৳ 0"}
+                  </ConfidentialSpoiler>
+                </span>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-500/20">
+                  <span>{topDistrict ? topDistrict.percentage : 0}% Nat&apos;l Share</span>
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -803,25 +915,30 @@ export default function DashboardCharts({
       </div>
 
       {/* ── Section 3: Territory Performance Leaderboard (Ranked Summary) ─── */}
-      <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-5 sm:p-6 shadow-sm">
-        <div className="pb-4 border-b border-slate-100 dark:border-slate-800">
-          <h3 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">
-            Territory Performance Matrix
-          </h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Comparative order volume and revenue generation ranked by district
-          </p>
+      <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-4 sm:p-6 shadow-sm">
+        <div className="pb-3 sm:pb-4 border-b border-slate-100 dark:border-slate-800 flex items-start sm:items-center justify-between gap-2">
+          <div>
+            <h3 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">
+              Territory Performance Matrix
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Comparative order volume and revenue generation ranked by district
+            </p>
+          </div>
+          <span className="shrink-0 text-[10px] sm:text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-2 py-0.5 rounded-md border border-indigo-200/60 dark:border-indigo-500/20">
+            Top {districtSales.slice(0, 6).length} Districts
+          </span>
         </div>
 
-        <div className="mt-4 overflow-x-auto">
+        <div className="mt-3 sm:mt-4 overflow-x-auto scrollbar-none">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
-              <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-600 dark:text-slate-400 uppercase tracking-wider font-semibold text-[10px]">
-                <th className="py-2.5 px-3">Rank</th>
-                <th className="py-2.5 px-3">District Territory</th>
-                <th className="py-2.5 px-3 text-right">Orders</th>
-                <th className="py-2.5 px-3 text-right">Revenue (BDT)</th>
-                <th className="py-2.5 px-3">National Market Share</th>
+              <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold text-[10px]">
+                <th className="hidden sm:table-cell py-2.5 px-3 w-12">Rank</th>
+                <th className="py-2.5 px-2 sm:px-3">District</th>
+                <th className="py-2.5 px-2 sm:px-3 text-right">Orders</th>
+                <th className="py-2.5 px-2 sm:px-3 text-right">Revenue</th>
+                <th className="py-2.5 px-2 sm:px-3 w-24 sm:w-44 text-right sm:text-left">Market Share</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100/70 dark:divide-slate-800/50">
@@ -830,27 +947,55 @@ export default function DashboardCharts({
                   key={item.district}
                   className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors"
                 >
-                  <td className="py-3 px-3 font-bold text-slate-500 dark:text-slate-400">
+                  {/* Desktop Only Rank Column */}
+                  <td className="hidden sm:table-cell py-3 px-3 font-mono font-bold text-slate-400 dark:text-slate-500">
                     #{idx + 1}
                   </td>
-                  <td className="py-3 px-3 font-semibold text-slate-900 dark:text-white">
-                    {item.district}
+
+                  {/* District (on mobile displays rank prefix #1, #2...) */}
+                  <td className="py-2.5 sm:py-3 px-2 sm:px-3 font-semibold text-slate-900 dark:text-white whitespace-nowrap">
+                    <span className="sm:hidden font-mono font-bold text-slate-400 mr-1 text-[11px]">
+                      #{idx + 1}
+                    </span>
+                    <span>{item.district}</span>
                   </td>
-                  <td className="py-3 px-3 text-right font-medium text-slate-600 dark:text-slate-300">
+
+                  {/* Orders */}
+                  <td className="py-2.5 sm:py-3 px-2 sm:px-3 text-right font-medium text-slate-600 dark:text-slate-300 font-mono text-[11px] sm:text-xs">
                     {item.orders.toLocaleString("en-US")}
                   </td>
-                  <td className="py-3 px-3 text-right font-mono font-bold text-slate-900 dark:text-white">
-                    ৳ {item.revenue.toLocaleString("en-US")}
+
+                  {/* Revenue: Compact on mobile (৳4.22M, ৳581k), Full on desktop */}
+                  <td
+                    className="py-2.5 sm:py-3 px-2 sm:px-3 text-right font-mono font-bold text-slate-900 dark:text-white whitespace-nowrap text-xs"
+                    title={`৳ ${item.revenue.toLocaleString("en-US")}`}
+                  >
+                    <span className="sm:hidden text-indigo-600 dark:text-indigo-400">
+                      {formatCompactBdt(item.revenue)}
+                    </span>
+                    <span className="hidden sm:inline">
+                      ৳ {item.revenue.toLocaleString("en-US")}
+                    </span>
                   </td>
-                  <td className="py-3 px-3 min-w-40">
-                    <div className="flex items-center gap-2.5">
-                      <div className="flex-1 h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+
+                  {/* Market Share Progress Bar */}
+                  <td className="py-2.5 sm:py-3 px-2 sm:px-3">
+                    <div className="flex items-center justify-end sm:justify-start gap-1.5 sm:gap-2.5">
+                      {/* Desktop Progress Bar */}
+                      <div className="hidden sm:block flex-1 h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
                         <div
-                          className="h-full rounded-full bg-indigo-500"
+                          className="h-full rounded-full bg-indigo-500 transition-all"
                           style={{ width: `${Math.min(item.percentage * 2.5, 100)}%` }}
                         />
                       </div>
-                      <span className="font-mono text-[11px] font-semibold text-slate-600 dark:text-slate-300 w-10 text-right">
+                      {/* Mobile Mini Progress Bar */}
+                      <div className="sm:hidden w-10 h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden shrink-0">
+                        <div
+                          className="h-full rounded-full bg-indigo-500 transition-all"
+                          style={{ width: `${Math.min(item.percentage * 2.5, 100)}%` }}
+                        />
+                      </div>
+                      <span className="font-mono text-[10px] sm:text-[11px] font-semibold text-slate-600 dark:text-slate-300 w-8 sm:w-10 text-right shrink-0">
                         {item.percentage}%
                       </span>
                     </div>
