@@ -1,3 +1,5 @@
+"use client";
+
 import { Compass, Navigation } from "lucide-react";
 
 export default function RootLoading() {

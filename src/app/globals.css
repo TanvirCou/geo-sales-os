@@ -50,6 +50,43 @@
   background: rgba(148, 163, 184, 0.5);
 }
 
+
+/* ── MapLibre & Google Maps Canvas & Cursor Stability ────────────────────── */
+/* Fix: Windows Chromium GPU bug where 'cursor: grab' vanishes/hides over WebGL canvas */
+.maplibregl-canvas-container,
+.maplibregl-canvas-container.maplibregl-interactive,
+.maplibregl-canvas {
+  cursor: default !important;
+}
+
+.maplibregl-canvas-container.maplibregl-interactive:active,
+.maplibregl-canvas-container:active,
+.maplibregl-canvas:active,
+.maplibregl-canvas-container.maplibregl-track-pointer {
+  cursor: move !important;
+}
+
+.maplibregl-marker,
+.custom-map-pin,
+.ordered-pin,
+.archived-pin,
+.unopened-pin {
+  cursor: pointer !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+.custom-map-pin * {
+  pointer-events: none !important;
+  user-select: none !important;
+}
+
+.maplibregl-popup,
+.maplibregl-popup-content,
+.map-popup-inner {
+  cursor: default !important;
+}
+
 /* ── Modern MapLibre Popup & Close Button Styling ──────────────────────────── */
 .maplibregl-popup {
   z-index: 30 !important;
@@ -76,8 +113,45 @@
   border-top-color: #ffffff !important;
 }
 
+.maplibregl-popup-anchor-top .maplibregl-popup-tip {
+  border-bottom-color: #ffffff !important;
+}
+.maplibregl-popup-anchor-bottom .maplibregl-popup-tip {
+  border-top-color: #ffffff !important;
+}
+.maplibregl-popup-anchor-left .maplibregl-popup-tip {
+  border-right-color: #ffffff !important;
+}
+.maplibregl-popup-anchor-right .maplibregl-popup-tip {
+  border-left-color: #ffffff !important;
+}
+
 .dark .maplibregl-popup-tip {
   border-top-color: #1e293b !important;
+}
+
+.dark .maplibregl-popup-anchor-top .maplibregl-popup-tip {
+  border-bottom-color: #1e293b !important;
+}
+.dark .maplibregl-popup-anchor-bottom .maplibregl-popup-tip {
+  border-top-color: #1e293b !important;
+}
+.dark .maplibregl-popup-anchor-left .maplibregl-popup-tip {
+  border-right-color: #1e293b !important;
+}
+.dark .maplibregl-popup-anchor-right .maplibregl-popup-tip {
+  border-left-color: #1e293b !important;
+}
+
+/* Current User Location Popup Badge */
+.current-location-popup .maplibregl-popup-content {
+  border-radius: 12px !important;
+  padding: 0 !important;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.15) !important;
+}
+
+.dark .current-location-popup .maplibregl-popup-content {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5) !important;
 }
 
 /* Perfectly centered round close button */

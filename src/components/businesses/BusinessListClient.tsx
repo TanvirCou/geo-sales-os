@@ -10,6 +10,7 @@ import {
   createBusiness,
   updateBusiness,
   deleteBusiness,
+  bulkDeleteBusinesses,
   archiveBusiness,
   restoreBusiness,
   geocodeAddressAction,
@@ -91,6 +92,9 @@ export default function BusinessListClient({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingBusiness, setEditingBusiness] = useState<BusinessItem | null>(null);
   const [deletingBusiness, setDeletingBusiness] = useState<BusinessItem | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const [archivingBusiness, setArchivingBusiness] = useState<BusinessItem | null>(null);
   const [restoringBusiness, setRestoringBusiness] = useState<BusinessItem | null>(null);
   const [openActionBusiness, setOpenActionBusiness] = useState<BusinessItem | null>(null);
@@ -478,6 +482,58 @@ export default function BusinessListClient({
     });
   };
 
+
+  const handleToggleSelectAllPage = () => {
+    const pageIds = paginatedBusinesses.map((b) => b.id);
+    const allPageSelected = pageIds.length > 0 && pageIds.every((id) => selectedIds.has(id));
+    const next = new Set(selectedIds);
+    if (allPageSelected) {
+      pageIds.forEach((id) => next.delete(id));
+    } else {
+      pageIds.forEach((id) => next.add(id));
+    }
+    setSelectedIds(next);
+  };
+
+  const handleSelectAllFiltered = () => {
+    const allIds = filtered.map((b) => b.id);
+    setSelectedIds(new Set(allIds));
+  };
+
+  const handleClearSelection = () => {
+    setSelectedIds(new Set());
+  };
+
+  const handleToggleRow = (id: string) => {
+    const next = new Set(selectedIds);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    setSelectedIds(next);
+  };
+
+  const confirmBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    setIsBulkDeleting(true);
+    try {
+      const res = await bulkDeleteBusinesses(Array.from(selectedIds));
+      if (res.error) {
+        toast.error(res.error);
+      } else {
+        toast.success(`Successfully deleted ${res.count} business(es).`);
+        setSelectedIds(new Set());
+        setIsBulkDeleteModalOpen(false);
+        router.refresh();
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete selected businesses.");
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
+
   const confirmDeleteAction = () => {
     if (!deletingBusiness) return;
     const { id, name } = deletingBusiness;
@@ -683,11 +739,61 @@ export default function BusinessListClient({
         </div>
       </div>
 
+
+      {/* Bulk Action Bar */}
+      {canDeleteBusiness && selectedIds.size > 0 && (
+        <div className="p-2.5 sm:p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 shadow-md shadow-slate-200/50 dark:shadow-black/30 flex flex-wrap items-center justify-between gap-3 animate-fade-in">
+          <div className="flex items-center gap-2 text-xs sm:text-sm font-medium">
+            <span className="min-w-6 h-6 px-2 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
+              {selectedIds.size}
+            </span>
+            <span className="font-semibold text-slate-800 dark:text-slate-200">business(es) selected</span>
+            {selectedIds.size < filtered.length && (
+              <button
+                type="button"
+                onClick={handleSelectAllFiltered}
+                className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-semibold underline underline-offset-2 ml-1 cursor-pointer"
+              >
+                Select all {filtered.length} matching
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleClearSelection}
+              className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer"
+            >
+              Deselect
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsBulkDeleteModalOpen(true)}
+              className="px-3.5 py-1.5 text-xs font-bold rounded-lg bg-rose-600 hover:bg-rose-500 text-white flex items-center gap-1.5 shadow-sm shadow-rose-600/30 transition-all cursor-pointer active:scale-95"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Delete Selected ({selectedIds.size})
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Businesses Table — Desktop View (md:) */}
       <div className="hidden md:block overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/40 shadow-sm">
         <table className="w-full min-w-[850px] text-left border-collapse text-sm">
           <thead>
             <tr className="bg-slate-50 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+              {canDeleteBusiness && (
+                <th className="px-3 py-3.5 w-10 text-center">
+                  <input
+                    type="checkbox"
+                    checked={paginatedBusinesses.length > 0 && paginatedBusinesses.every((b) => selectedIds.has(b.id))}
+                    onChange={handleToggleSelectAllPage}
+                    className="w-4 h-4 rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                    aria-label="Select all businesses on this page"
+                  />
+                </th>
+              )}
               <th className="px-4 py-3.5 min-w-50">Business Name</th>
               <th className="px-4 py-3.5 w-27.5 whitespace-nowrap">Category</th>
               <th className="px-4 py-3.5 min-w-60">Area / District</th>
@@ -700,13 +806,24 @@ export default function BusinessListClient({
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800/40">
             {paginatedBusinesses.length === 0 ? (
               <tr>
-                <td colSpan={7} className="text-center py-12 text-slate-500 font-medium">
+                <td colSpan={canDeleteBusiness ? 8 : 7} className="text-center py-12 text-slate-500 font-medium">
                   No businesses matching current filters.
                 </td>
               </tr>
             ) : (
               paginatedBusinesses.map((b) => (
-                <tr key={b.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/30 transition-colors">
+                <tr key={b.id} className={`hover:bg-slate-50/80 dark:hover:bg-slate-800/30 transition-colors ${selectedIds.has(b.id) ? "bg-blue-50/50 dark:bg-blue-900/10" : ""}`}>
+                  {canDeleteBusiness && (
+                    <td className="px-3 py-3.5 w-10 text-center" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(b.id)}
+                        onChange={() => handleToggleRow(b.id)}
+                        className="w-4 h-4 rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                        aria-label={`Select ${b.name}`}
+                      />
+                    </td>
+                  )}
                   <td className="px-4 py-3.5 min-w-50">
                     <Link
                       href={`/dashboard/businesses/${b.id}`}
@@ -783,7 +900,16 @@ export default function BusinessListClient({
             >
               {/* Header: Category / District & Order Count */}
               <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                <div className="flex items-center gap-2 flex-wrap min-w-0">
+                  {canDeleteBusiness && (
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(b.id)}
+                      onChange={() => handleToggleRow(b.id)}
+                      className="w-4 h-4 rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
+                      aria-label={`Select ${b.name}`}
+                    />
+                  )}
                   <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-200/60 dark:border-blue-500/20 truncate">
                     {b.category || "General"}
                   </span>

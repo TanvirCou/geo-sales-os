@@ -385,3 +385,31 @@ export async function deleteOrder(id: string) {
     return { error: err.message || "Failed to delete order." };
   }
 }
+
+export async function bulkDeleteOrders(ids: string[]) {
+  const session = await requireAuth();
+  if (!hasPermission(session.user, "canDeleteOrder")) {
+    return { error: "Unauthorized: Only administrators have permission to delete orders." };
+  }
+
+  if (!ids || !Array.isArray(ids) || ids.length === 0) {
+    return { error: "No orders selected for deletion." };
+  }
+
+  try {
+    await db.$transaction(async (tx) => {
+      await tx.orderItem.deleteMany({ where: { orderId: { in: ids } } });
+      await tx.order.deleteMany({ where: { id: { in: ids } } });
+    });
+
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/orders");
+    revalidatePath("/dashboard/businesses");
+    revalidatePath("/dashboard/map/google");
+    revalidatePath("/dashboard/map/geoapify");
+
+    return { success: true, count: ids.length };
+  } catch (err: any) {
+    return { error: err.message || "Failed to delete selected orders." };
+  }
+}

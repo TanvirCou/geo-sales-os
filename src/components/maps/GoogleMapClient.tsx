@@ -122,6 +122,7 @@ export default function GoogleMapClient({
   const routePolylineRef = useRef<any>(null);
   const directionsRendererRef = useRef<any>(null);
   const pendingSelectedPointIdRef = useRef<string | null>(null);
+  const handledFocusIdRef = useRef<string | null>(null);
   const currentOpenPointIdRef = useRef<string | null>(null);
   const flightAnimationRef = useRef<number | null>(null);
 
@@ -542,6 +543,15 @@ export default function GoogleMapClient({
   const handleLocateMe = () => {
     if (!mapInstanceRef.current || !window.google) return;
     const map = mapInstanceRef.current;
+
+    // User explicitly triggered current location: dismiss lingering InfoWindow & prevent auto-snap back
+    handledFocusIdRef.current = focusId || "__USER_NAVIGATED__";
+    if (activeInfoWindowRef.current) {
+      activeInfoWindowRef.current.close();
+      activeInfoWindowRef.current = null;
+      currentOpenPointIdRef.current = null;
+    }
+    setSelectedPoint(null);
 
     // Reset all filters so that all nearby client businesses and leads are visible
     setFilters({
@@ -1174,11 +1184,20 @@ export default function GoogleMapClient({
     if (!mapLoaded || !mapInstanceRef.current || !window.google) return;
     const map = mapInstanceRef.current;
 
-    const targetId = pendingSelectedPointIdRef.current || (focusId ? focusId : null);
+    const isFocusTarget = Boolean(focusId && handledFocusIdRef.current !== focusId);
+    const targetId = pendingSelectedPointIdRef.current || (isFocusTarget ? focusId : null);
     if (!targetId) return;
 
     const entry = markersMapRef.current.get(targetId);
     if (entry) {
+      if (isFocusTarget && targetId === focusId) {
+        handledFocusIdRef.current = focusId;
+        if (typeof window !== "undefined" && window.history && window.location.search) {
+          const url = new URL(window.location.href);
+          url.searchParams.delete("focus");
+          window.history.replaceState(null, "", url.pathname + (url.search ? url.search : ""));
+        }
+      }
       entry.marker.setVisible(true);
       flyToGoogleMap(map, entry.point.latitude, entry.point.longitude, 16, {
         onComplete: () => {
@@ -1314,6 +1333,14 @@ export default function GoogleMapClient({
 
     // When district changes: fly Google Map to district center & scan nearby prospects
     if (newFilters.district !== filters.district && newFilters.district !== "ALL") {
+      handledFocusIdRef.current = focusId || "__USER_NAVIGATED__";
+      if (activeInfoWindowRef.current) {
+        activeInfoWindowRef.current.close();
+        activeInfoWindowRef.current = null;
+        currentOpenPointIdRef.current = null;
+      }
+      setSelectedPoint(null);
+
       const coords = getDistrictCoordinates(newFilters.district);
       if (coords && mapInstanceRef.current) {
         flyToGoogleMap(mapInstanceRef.current, coords.lat, coords.lng, 12, {
@@ -1323,7 +1350,7 @@ export default function GoogleMapClient({
         });
       }
     }
-  }, [filters.district, flyToGoogleMap]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filters.district, flyToGoogleMap, focusId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -1376,7 +1403,7 @@ export default function GoogleMapClient({
         {/* Map Canvas */}
         <div
           ref={mapCanvasRef}
-          className={`relative rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 shadow-lg min-h-110 sm:min-h-135 transition-all ${
+          className={`relative rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 shadow-lg min-h-110 sm:min-h-135 ${
             isFullscreen
               ? "map-canvas-fullscreen"
               : ""
@@ -1384,7 +1411,7 @@ export default function GoogleMapClient({
         >
           <div
             ref={mapContainerRef}
-            className={`w-full bg-slate-100 dark:bg-slate-900 transition-all ${
+            className={`w-full bg-slate-100 dark:bg-slate-900 ${
               isFullscreen ? "h-screen min-h-screen" : "h-full min-h-110 sm:min-h-135"
             }`}
           />

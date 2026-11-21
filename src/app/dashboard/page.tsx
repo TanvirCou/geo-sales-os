@@ -31,8 +31,12 @@ export default async function DashboardPage() {
         totalBusinesses={kpis.totalBusinesses}
         totalProducts={kpis.totalProducts}
         totalOrders={kpis.totalOrders}
+        completedOrdersCount={kpis.completedOrdersCount}
+        pendingRevenue={kpis.pendingRevenue}
         totalRevenue={kpis.totalRevenue}
         avgOrderValue={kpis.avgOrderValue}
+        isAdmin={kpis.isAdmin}
+        userRole={kpis.userRole}
       />
     </div>
   );

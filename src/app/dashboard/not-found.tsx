@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 import { FileQuestion, ArrowLeft, Home, Building2, Package } from "lucide-react";
 

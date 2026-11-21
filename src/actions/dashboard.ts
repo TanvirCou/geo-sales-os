@@ -25,9 +25,13 @@ export interface OrderStatusBreakdown {
 }
 
 export interface DashboardKPIData {
+  isAdmin: boolean;
+  userRole: string;
   totalBusinesses: number;
   totalProducts: number;
   totalOrders: number;
+  completedOrdersCount: number;
+  pendingRevenue: number;
   totalRevenue: number;
   avgOrderValue: number;
   greenBusinesses: number;
@@ -49,7 +53,9 @@ export interface DashboardKPIData {
 }
 
 export async function getDashboardKPIs(): Promise<DashboardKPIData> {
-  await requireAuth();
+  const session = await requireAuth();
+  const isAdmin = session?.user?.role === "ADMIN";
+  const userRole = session?.user?.role ?? "MODERATOR";
 
   const [
     totalBusinesses,
@@ -109,8 +115,11 @@ export async function getDashboardKPIs(): Promise<DashboardKPIData> {
   const greenBusinesses = businessesWithOrders;
   const redBusinesses = Math.max(0, totalBusinesses - greenBusinesses);
 
-  // Aggregations
+  // Aggregations — strictly for COMPLETED orders as realized revenue
   let totalRevenue = 0;
+  let completedOrdersCount = 0;
+  let pendingRevenue = 0;
+
   const monthlyMap: Record<string, { key: string; label: string; revenue: number; orders: number }> = {};
   const districtMap: Record<string, { district: string; revenue: number; orders: number }> = {};
   const statusMap: Record<string, { count: number; revenue: number }> = {
@@ -123,9 +132,16 @@ export async function getDashboardKPIs(): Promise<DashboardKPIData> {
 
   for (const o of orders) {
     const rev = Number(o.totalAmountBdt || 0);
-    totalRevenue += rev;
+    const isCompleted = o.status === "COMPLETED";
 
-    // Monthly
+    if (isCompleted) {
+      totalRevenue += rev;
+      completedOrdersCount += 1;
+    } else if (o.status === "PENDING") {
+      pendingRevenue += rev;
+    }
+
+    // Monthly aggregation
     if (o.orderedAt) {
       const year = o.orderedAt.getFullYear();
       const monthIdx = o.orderedAt.getMonth();
@@ -138,19 +154,25 @@ export async function getDashboardKPIs(): Promise<DashboardKPIData> {
           orders: 0,
         };
       }
-      monthlyMap[mKey].revenue += rev;
+      // ONLY COMPLETED orders add to revenue
+      if (isCompleted) {
+        monthlyMap[mKey].revenue += rev;
+      }
       monthlyMap[mKey].orders += 1;
     }
 
-    // District
+    // District aggregation
     const dist = o.business?.district?.trim() || "Other";
     if (!districtMap[dist]) {
       districtMap[dist] = { district: dist, revenue: 0, orders: 0 };
     }
-    districtMap[dist].revenue += rev;
+    // ONLY COMPLETED orders add to revenue
+    if (isCompleted) {
+      districtMap[dist].revenue += rev;
+    }
     districtMap[dist].orders += 1;
 
-    // Status
+    // Status breakdown (keeps track of all statuses for donut chart)
     const st = o.status || "UNKNOWN";
     if (!statusMap[st]) {
       statusMap[st] = { count: 0, revenue: 0 };
@@ -160,12 +182,22 @@ export async function getDashboardKPIs(): Promise<DashboardKPIData> {
   }
 
   // Last 12 months sorted chronologically
-  const monthlyTrend = Object.values(monthlyMap)
+  const monthlyTrend: MonthlyTrendItem[] = Object.values(monthlyMap)
     .sort((a, b) => a.key.localeCompare(b.key))
-    .slice(-12);
+    .slice(-12)
+    .map((m) => ({
+      key: m.key,
+      label: m.label,
+      // If not admin, sanitize revenue to 0 over the wire
+      revenue: isAdmin ? m.revenue : 0,
+      orders: m.orders,
+    }));
 
   // Top 7 districts + others
-  const sortedDistricts = Object.values(districtMap).sort((a, b) => b.revenue - a.revenue);
+  // If admin, rank by completed revenue; if non-admin, rank by order volume
+  const sortedDistricts = Object.values(districtMap).sort((a, b) =>
+    isAdmin ? b.revenue - a.revenue : b.orders - a.orders
+  );
   const top7 = sortedDistricts.slice(0, 7);
   const others = sortedDistricts.slice(7);
   const othersRev = others.reduce((acc, d) => acc + d.revenue, 0);
@@ -173,17 +205,21 @@ export async function getDashboardKPIs(): Promise<DashboardKPIData> {
 
   const districtSales: DistrictSalesItem[] = top7.map((d) => ({
     district: d.district,
-    revenue: d.revenue,
+    revenue: isAdmin ? d.revenue : 0,
     orders: d.orders,
-    percentage: totalRevenue > 0 ? Math.round((d.revenue / totalRevenue) * 1000) / 10 : 0,
+    percentage: isAdmin
+      ? (totalRevenue > 0 ? Math.round((d.revenue / totalRevenue) * 1000) / 10 : 0)
+      : (totalOrders > 0 ? Math.round((d.orders / totalOrders) * 1000) / 10 : 0),
   }));
 
-  if (othersRev > 0) {
+  if (isAdmin ? othersRev > 0 : othersOrders > 0) {
     districtSales.push({
       district: "Others",
-      revenue: othersRev,
+      revenue: isAdmin ? othersRev : 0,
       orders: othersOrders,
-      percentage: totalRevenue > 0 ? Math.round((othersRev / totalRevenue) * 1000) / 10 : 0,
+      percentage: isAdmin
+        ? (totalRevenue > 0 ? Math.round((othersRev / totalRevenue) * 1000) / 10 : 0)
+        : (totalOrders > 0 ? Math.round((othersOrders / totalOrders) * 1000) / 10 : 0),
     });
   }
 
@@ -192,18 +228,23 @@ export async function getDashboardKPIs(): Promise<DashboardKPIData> {
   const statusBreakdown: OrderStatusBreakdown[] = Object.entries(statusMap).map(([status, val]) => ({
     status,
     count: val.count,
-    revenue: val.revenue,
+    revenue: isAdmin ? val.revenue : 0,
     percentage: Math.round((val.count / totalStatusOrders) * 1000) / 10,
   }));
 
-  const avgOrderValue = totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 0;
+  // Average completed order value
+  const avgOrderValue = completedOrdersCount > 0 ? Math.round(totalRevenue / completedOrdersCount) : 0;
 
   return {
+    isAdmin,
+    userRole,
     totalBusinesses,
     totalProducts,
     totalOrders,
-    totalRevenue,
-    avgOrderValue,
+    completedOrdersCount,
+    pendingRevenue: isAdmin ? pendingRevenue : 0,
+    totalRevenue: isAdmin ? totalRevenue : 0,
+    avgOrderValue: isAdmin ? avgOrderValue : 0,
     greenBusinesses,
     redBusinesses,
     unlocatedBusinesses,
@@ -218,10 +259,12 @@ export async function getDashboardKPIs(): Promise<DashboardKPIData> {
       orderedAt: o.orderedAt?.toISOString() ?? null,
       status: o.status,
       itemCount: o.items.length,
-      totalBdt: o.items.reduce(
-        (sum, item) => sum + Number(item.quantity) * Number(item.unitPriceBdt),
-        0
-      ),
+      totalBdt: isAdmin
+        ? o.items.reduce(
+            (sum, item) => sum + Number(item.quantity) * Number(item.unitPriceBdt),
+            0
+          )
+        : 0,
     })),
   };
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, memo } from "react";
 import { Search, X, MapPin, CheckCircle2, ChevronDown, Loader2 } from "lucide-react";
 import { searchLivePlacesAcrossBD } from "@/actions/map";
 
@@ -77,7 +77,7 @@ function cleanLocation(
   return loc;
 }
 
-export default function BusinessMapFilters({
+function BusinessMapFilters({
   filters,
   onChange,
   categories,
@@ -415,3 +415,5 @@ export default function BusinessMapFilters({
     </div>
   );
 }
+
+export default memo(BusinessMapFilters);

@@ -9,14 +9,13 @@ import {
   CheckCircle2,
   Clock,
   XCircle,
-  ArrowUpRight,
   DollarSign,
   Package,
   Building2,
   Sparkles,
-  Layers,
   Eye,
   EyeOff,
+  Lock,
 } from "lucide-react";
 import ConfidentialSpoiler from "@/components/ui/ConfidentialSpoiler";
 import {
@@ -32,8 +31,12 @@ interface DashboardChartsProps {
   totalBusinesses: number;
   totalProducts: number;
   totalOrders: number;
+  completedOrdersCount?: number;
+  pendingRevenue?: number;
   totalRevenue: number;
   avgOrderValue: number;
+  isAdmin?: boolean;
+  userRole?: string;
 }
 
 function formatCompactBdt(amount: number): string {
@@ -56,15 +59,21 @@ export default function DashboardCharts({
   totalBusinesses,
   totalProducts,
   totalOrders,
+  completedOrdersCount = 0,
+  pendingRevenue = 0,
   totalRevenue,
   avgOrderValue,
+  isAdmin = false,
+  userRole = "USER",
 }: DashboardChartsProps) {
-  // Toggle between Revenue (BDT) and Order Volume for Line Chart
-  const [trendMetric, setTrendMetric] = useState<"revenue" | "orders">("revenue");
+  // Line chart metric: Admin can toggle, Non-admin is strictly locked to "orders"
+  const [trendMetric, setTrendMetric] = useState<"revenue" | "orders">(
+    isAdmin ? "revenue" : "orders"
+  );
   const [hoveredTrendIdx, setHoveredTrendIdx] = useState<number | null>(null);
   const [hoveredDistrictIdx, setHoveredDistrictIdx] = useState<number | null>(null);
 
-  // Confidential Data Masking (Privacy Mode) State — Default to true (fancy spoiler particle cloud)
+  // Confidential Data Masking (Privacy Mode) State — Default to true (blurry particle spoiler)
   const [isPrivacyActive, setIsPrivacyActive] = useState(true);
   const [individualOverrides, setIndividualOverrides] = useState<Record<string, boolean>>({});
 
@@ -88,11 +97,14 @@ export default function DashboardCharts({
     setIndividualOverrides({});
   };
 
-  // Peak month calculation
-  const peakMonth = monthlyTrend.reduce(
-    (max, m) => (m.revenue > (max?.revenue || 0) ? m : max),
-    monthlyTrend[0]
-  );
+  // Peak month calculation (Admin considers completed revenue, Non-admin considers orders)
+  const peakMonth = monthlyTrend.reduce((max, m) => {
+    if (!max) return m;
+    if (isAdmin) {
+      return m.revenue > max.revenue ? m : max;
+    }
+    return m.orders > max.orders ? m : max;
+  }, monthlyTrend[0]);
 
   // ── 1. Line / Area Chart Dimensions & SVG Path ──────────────────────────────
   const chartW = 760;
@@ -104,17 +116,19 @@ export default function DashboardCharts({
   const innerW = chartW - padLeft - padRight;
   const innerH = chartH - padTop - padBottom;
 
+  const effectiveTrendMetric = isAdmin ? trendMetric : "orders";
+
   const trendValues = monthlyTrend.map((m) =>
-    trendMetric === "revenue" ? m.revenue : m.orders
+    effectiveTrendMetric === "revenue" ? m.revenue : m.orders
   );
   const maxTrendVal = Math.max(...trendValues, 1);
   const yCeil =
-    trendMetric === "revenue"
+    effectiveTrendMetric === "revenue"
       ? Math.ceil(maxTrendVal / 100000) * 100000
       : Math.ceil(maxTrendVal / 25) * 25;
 
   const points = monthlyTrend.map((item, idx) => {
-    const val = trendMetric === "revenue" ? item.revenue : item.orders;
+    const val = effectiveTrendMetric === "revenue" ? item.revenue : item.orders;
     const x = padLeft + (idx / Math.max(monthlyTrend.length - 1, 1)) * innerW;
     const y = padTop + innerH - (val / (yCeil || 1)) * innerH;
     return { x, y, item, val };
@@ -158,8 +172,14 @@ export default function DashboardCharts({
   const barInnerW = barSvgW - barPadLeft - barPadRight;
   const barInnerH = barSvgH - barPadTop - barPadBottom;
 
-  const maxDistrictRev = Math.max(...districtSales.map((d) => d.revenue), 1);
-  const barYCeil = Math.ceil(maxDistrictRev / 500000) * 500000;
+  // If admin: bar chart represents completed revenue. If non-admin: bar chart represents order counts
+  const maxDistrictVal = isAdmin
+    ? Math.max(...districtSales.map((d) => d.revenue), 1)
+    : Math.max(...districtSales.map((d) => d.orders), 1);
+
+  const barYCeil = isAdmin
+    ? Math.ceil(maxDistrictVal / 500000) * 500000
+    : Math.ceil(maxDistrictVal / 25) * 25;
 
   const barCount = districtSales.length || 1;
   const barSlotW = barInnerW / barCount;
@@ -173,22 +193,28 @@ export default function DashboardCharts({
 
   const statusColors: Record<string, { stroke: string; bg: string; text: string; icon: any }> = {
     COMPLETED: {
-      stroke: "#10b981", // emerald-500: balanced executive emerald green
+      stroke: "#10b981", // emerald-500
       bg: "bg-emerald-50 dark:bg-emerald-500/10",
       text: "text-emerald-700 dark:text-emerald-400",
       icon: CheckCircle2,
     },
     PENDING: {
-      stroke: "#f59e0b", // amber-500: rich balanced amber gold
+      stroke: "#f59e0b", // amber-500
       bg: "bg-amber-50 dark:bg-amber-500/10",
       text: "text-amber-700 dark:text-amber-400",
       icon: Clock,
     },
     CANCELLED: {
-      stroke: "#ef4444", // red-500: balanced vibrant red
+      stroke: "#ef4444", // red-500
       bg: "bg-rose-50 dark:bg-rose-500/10",
       text: "text-rose-700 dark:text-rose-400",
       icon: XCircle,
+    },
+    PARTIAL: {
+      stroke: "#8b5cf6", // violet-500
+      bg: "bg-purple-50 dark:bg-purple-500/10",
+      text: "text-purple-700 dark:text-purple-400",
+      icon: Clock,
     },
   };
 
@@ -199,82 +225,142 @@ export default function DashboardCharts({
     return `৳ ${num.toLocaleString("en-US")}`;
   };
 
-  const completedPct = totalOrders > 0
-    ? (statusBreakdown.find((s) => s.status === "COMPLETED")?.percentage ?? 0)
-    : 0;
+  const completedPct =
+    totalOrders > 0
+      ? (statusBreakdown.find((s) => s.status === "COMPLETED")?.percentage ?? 0)
+      : 0;
   const topDistrict = districtSales[0] || null;
 
   return (
     <div className="space-y-8 animate-fade-in">
-      {/* ── Unified Executive KPI Command Bar (4 Core Metrics with Privacy Mode) ── */}
+      {/* ── Unified Executive / Operations KPI Command Bar ─────────────────── */}
       <div className="space-y-3">
-        {/* Header toolbar with Privacy Mode Toggle */}
+        {/* Header toolbar */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-              Executive KPI Overview
+              {isAdmin ? "Executive KPI Overview" : "Operational KPI Overview"}
             </span>
-            <span className="hidden sm:inline-block text-[10px] px-2 py-0.5 rounded-full font-semibold bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-500/20">
-              Confidential Mode Supported
-            </span>
+            {isAdmin ? (
+              <span className="hidden sm:inline-block text-[10px] px-2 py-0.5 rounded-full font-semibold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/20">
+                Realized Revenue Active
+              </span>
+            ) : (
+              <span className="hidden sm:inline-block text-[10px] px-2 py-0.5 rounded-full font-semibold bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20">
+                Restricted Mode ({userRole})
+              </span>
+            )}
           </div>
 
-          <button
-            type="button"
-            onClick={togglePrivacyMode}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-300 shadow-2xs transition-all cursor-pointer active:scale-95"
-            title={isPrivacyActive ? "Click to reveal all figures" : "Click to hide all confidential figures with particle spoiler"}
-          >
-            {isPrivacyActive ? (
-              <>
-                <Eye className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                <span>Reveal All Figures</span>
-              </>
-            ) : (
-              <>
-                <EyeOff className="w-3.5 h-3.5 text-slate-400" />
-                <span>Mask Confidential Figures</span>
-              </>
-            )}
-          </button>
+          {isAdmin ? (
+            <button
+              type="button"
+              onClick={togglePrivacyMode}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-300 shadow-2xs transition-all cursor-pointer active:scale-95"
+              title={
+                isPrivacyActive
+                  ? "Click to reveal all figures"
+                  : "Click to hide all confidential figures with blurry particle spoiler"
+              }
+            >
+              {isPrivacyActive ? (
+                <>
+                  <Eye className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                  <span>Reveal All Figures</span>
+                </>
+              ) : (
+                <>
+                  <EyeOff className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Mask Confidential Figures</span>
+                </>
+              )}
+            </button>
+          ) : (
+            <div className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200/80 dark:border-slate-700/80">
+              <Lock className="w-3 h-3 text-amber-500" />
+              <span>Financial Data: Admin Only</span>
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* Metric 1: Total Revenue */}
+          {/* Metric 1: Gross Revenue (Completed orders only) */}
           <div className="group rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-5 shadow-sm hover:shadow-md transition-all hover:border-emerald-500/30">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                Gross Revenue
-              </span>
-              <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-500/20 flex items-center justify-center transition-transform group-hover:scale-105">
-                <DollarSign className="w-5 h-5" />
+              <div>
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Gross Revenue
+                </span>
+                {isAdmin && (
+                  <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
+                    Completed ({completedOrdersCount.toLocaleString("en-US")} orders)
+                  </div>
+                )}
+              </div>
+              <div
+                className={`w-10 h-10 rounded-xl flex items-center justify-center transition-transform group-hover:scale-105 border ${
+                  isAdmin
+                    ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200/60 dark:border-emerald-500/20"
+                    : "bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-200/60 dark:border-amber-500/20"
+                }`}
+              >
+                {isAdmin ? <DollarSign className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
               </div>
             </div>
+
             <div className="mt-3">
-              <div className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-                <ConfidentialSpoiler
-                  hidden={isMasked("gross_rev")}
-                  onToggle={() => toggleMetric("gross_rev")}
-                  accentColor="#10b981"
-                >
-                  {formatBDT(totalRevenue)}
-                </ConfidentialSpoiler>
-              </div>
-              <div className="mt-2 flex items-center justify-between text-xs">
-                <span className="font-mono text-slate-500 dark:text-slate-400">
-                  <ConfidentialSpoiler
-                    hidden={isMasked("gross_rev_full")}
-                    onToggle={() => toggleMetric("gross_rev_full")}
-                    accentColor="#10b981"
-                  >
-                    ৳ {totalRevenue.toLocaleString("en-US")}
-                  </ConfidentialSpoiler>
-                </span>
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
-                  <TrendingUp className="w-3 h-3" />
-                  <span>Live Orders</span>
-                </span>
-              </div>
+              {isAdmin ? (
+                <>
+                  <div className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+                    <ConfidentialSpoiler
+                      hidden={isMasked("gross_rev")}
+                      onToggle={() => toggleMetric("gross_rev")}
+                      accentColor="#10b981"
+                    >
+                      {formatBDT(totalRevenue)}
+                    </ConfidentialSpoiler>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between text-xs">
+                    <span className="font-mono text-slate-500 dark:text-slate-400">
+                      <ConfidentialSpoiler
+                        hidden={isMasked("gross_rev_full")}
+                        onToggle={() => toggleMetric("gross_rev_full")}
+                        accentColor="#10b981"
+                      >
+                        ৳ {totalRevenue.toLocaleString("en-US")}
+                      </ConfidentialSpoiler>
+                    </span>
+                    {pendingRevenue > 0 ? (
+                      <span
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20"
+                        title={`৳ ${pendingRevenue.toLocaleString("en-US")} in pending orders`}
+                      >
+                        <span>Pipeline: ৳ {Math.round(pendingRevenue / 1000)}k</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
+                        <CheckCircle2 className="w-3 h-3" />
+                        <span>Delivered</span>
+                      </span>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-2xl font-extrabold text-slate-400 dark:text-slate-500 tracking-widest font-mono select-none">
+                    ••••••••••
+                  </div>
+                  <div className="mt-2 flex items-center justify-between text-xs">
+                    <span className="text-slate-400 dark:text-slate-500 flex items-center gap-1">
+                      <Lock className="w-3 h-3 text-amber-500" />
+                      <span>Admin Access Only</span>
+                    </span>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20">
+                      Restricted
+                    </span>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
@@ -290,27 +376,37 @@ export default function DashboardCharts({
             </div>
             <div className="mt-3">
               <div className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-                <ConfidentialSpoiler
-                  hidden={isMasked("recorded_orders")}
-                  onToggle={() => toggleMetric("recorded_orders")}
-                  accentColor="#3b82f6"
-                >
-                  {totalOrders.toLocaleString("en-US")}
-                </ConfidentialSpoiler>
+                {isAdmin ? (
+                  <ConfidentialSpoiler
+                    hidden={isMasked("recorded_orders")}
+                    onToggle={() => toggleMetric("recorded_orders")}
+                    accentColor="#3b82f6"
+                  >
+                    {totalOrders.toLocaleString("en-US")}
+                  </ConfidentialSpoiler>
+                ) : (
+                  totalOrders.toLocaleString("en-US")
+                )}
               </div>
               <div className="mt-2 flex items-center justify-between text-xs">
-                <span className="text-slate-500 dark:text-slate-400 flex items-center gap-1">
-                  <span>Avg:</span>
-                  <strong className="text-slate-700 dark:text-slate-200 font-semibold">
-                    <ConfidentialSpoiler
-                      hidden={isMasked("avg_order")}
-                      onToggle={() => toggleMetric("avg_order")}
-                      accentColor="#3b82f6"
-                    >
-                      {formatBDT(avgOrderValue)}
-                    </ConfidentialSpoiler>
-                  </strong>
-                </span>
+                {isAdmin ? (
+                  <span className="text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                    <span>Avg Completed:</span>
+                    <strong className="text-slate-700 dark:text-slate-200 font-semibold">
+                      <ConfidentialSpoiler
+                        hidden={isMasked("avg_order")}
+                        onToggle={() => toggleMetric("avg_order")}
+                        accentColor="#3b82f6"
+                      >
+                        {formatBDT(avgOrderValue)}
+                      </ConfidentialSpoiler>
+                    </strong>
+                  </span>
+                ) : (
+                  <span className="text-slate-500 dark:text-slate-400">
+                    Order Delivery Rate
+                  </span>
+                )}
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-500/20">
                   <CheckCircle2 className="w-3 h-3" />
                   <span>{completedPct}% Delivered</span>
@@ -331,13 +427,17 @@ export default function DashboardCharts({
             </div>
             <div className="mt-3">
               <div className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-                <ConfidentialSpoiler
-                  hidden={isMasked("registered_clients")}
-                  onToggle={() => toggleMetric("registered_clients")}
-                  accentColor="#14b8a6"
-                >
-                  {totalBusinesses.toLocaleString("en-US")}
-                </ConfidentialSpoiler>
+                {isAdmin ? (
+                  <ConfidentialSpoiler
+                    hidden={isMasked("registered_clients")}
+                    onToggle={() => toggleMetric("registered_clients")}
+                    accentColor="#14b8a6"
+                  >
+                    {totalBusinesses.toLocaleString("en-US")}
+                  </ConfidentialSpoiler>
+                ) : (
+                  totalBusinesses.toLocaleString("en-US")
+                )}
               </div>
               <div className="mt-2 flex items-center justify-between text-xs">
                 <span className="text-slate-500 dark:text-slate-400">
@@ -366,25 +466,38 @@ export default function DashboardCharts({
                 {topDistrict ? topDistrict.district : "None"}
               </div>
               <div className="mt-2 flex items-center justify-between text-xs">
-                <span className="text-slate-500 dark:text-slate-400 font-mono">
-                  <ConfidentialSpoiler
-                    hidden={isMasked("territory_revenue")}
-                    onToggle={() => toggleMetric("territory_revenue")}
-                    accentColor="#a855f7"
-                  >
-                    {topDistrict ? formatBDT(topDistrict.revenue) : "৳ 0"}
-                  </ConfidentialSpoiler>
-                </span>
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-500/20">
-                  <span>{topDistrict ? topDistrict.percentage : 0}% Nat&apos;l Share</span>
-                </span>
+                {isAdmin ? (
+                  <>
+                    <span className="text-slate-500 dark:text-slate-400 font-mono">
+                      <ConfidentialSpoiler
+                        hidden={isMasked("territory_revenue")}
+                        onToggle={() => toggleMetric("territory_revenue")}
+                        accentColor="#a855f7"
+                      >
+                        {topDistrict ? formatBDT(topDistrict.revenue) : "৳ 0"}
+                      </ConfidentialSpoiler>
+                    </span>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-500/20">
+                      <span>{topDistrict ? topDistrict.percentage : 0}% Realized Share</span>
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-slate-600 dark:text-slate-300 font-medium font-mono">
+                      {topDistrict ? topDistrict.orders.toLocaleString("en-US") : 0} Orders
+                    </span>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-500/20">
+                      <span>{topDistrict ? topDistrict.percentage : 0}% Order Share</span>
+                    </span>
+                  </>
+                )}
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* ── Chart Section 1: Sales & Revenue Trend (Line / Area Chart) ─────── */}
+      {/* ── Chart Section 1: Sales & Order Trend (Line / Area Chart) ─────── */}
       <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-5 sm:p-6 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-100 dark:border-slate-800">
           <div>
@@ -393,45 +506,73 @@ export default function DashboardCharts({
                 <TrendingUp className="w-4 h-4" />
               </span>
               <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white tracking-tight">
-                Sales &amp; Order Trend Over Time
+                {isAdmin && effectiveTrendMetric === "revenue"
+                  ? "Realized Sales Revenue Over Time (Completed)"
+                  : "Order Volume Trajectory Over Time"}
               </h2>
               {peakMonth && (
                 <span className="hidden md:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-500/20">
                   <Sparkles className="w-3 h-3 text-blue-500" />
-                  <span>Peak: {peakMonth.label} ({formatBDT(peakMonth.revenue)})</span>
+                  {isAdmin ? (
+                    <span>
+                      Peak: {peakMonth.label} (
+                      <ConfidentialSpoiler
+                        hidden={isMasked("peak_trend")}
+                        onToggle={() => toggleMetric("peak_trend")}
+                        accentColor="#3b82f6"
+                      >
+                        {effectiveTrendMetric === "revenue"
+                          ? formatBDT(peakMonth.revenue)
+                          : `${peakMonth.orders.toLocaleString("en-US")} orders`}
+                      </ConfidentialSpoiler>
+                      )
+                    </span>
+                  ) : (
+                    <span>
+                      Peak: {peakMonth.label} ({peakMonth.orders.toLocaleString("en-US")} orders)
+                    </span>
+                  )}
                 </span>
               )}
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              Monthly historical sales trajectory across registered businesses (Last 12 Months)
+              {isAdmin && effectiveTrendMetric === "revenue"
+                ? "Monthly completed orders sales trajectory across registered businesses (Last 12 Months)"
+                : "Monthly order count progression across registered businesses (Last 12 Months)"}
             </p>
           </div>
 
-          {/* Metric Toggle Tabs */}
-          <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl border border-slate-200/60 dark:border-slate-700/60 self-start sm:self-auto">
-            <button
-              type="button"
-              onClick={() => setTrendMetric("revenue")}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                trendMetric === "revenue"
-                  ? "bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm"
-                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-              }`}
-            >
-              Revenue (BDT)
-            </button>
-            <button
-              type="button"
-              onClick={() => setTrendMetric("orders")}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                trendMetric === "orders"
-                  ? "bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm"
-                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-              }`}
-            >
-              Order Volume
-            </button>
-          </div>
+          {/* Metric Toggle Tabs: ONLY visible for Admin */}
+          {isAdmin ? (
+            <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl border border-slate-200/60 dark:border-slate-700/60 self-start sm:self-auto">
+              <button
+                type="button"
+                onClick={() => setTrendMetric("revenue")}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                  trendMetric === "revenue"
+                    ? "bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                }`}
+              >
+                Revenue (BDT)
+              </button>
+              <button
+                type="button"
+                onClick={() => setTrendMetric("orders")}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                  trendMetric === "orders"
+                    ? "bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                }`}
+              >
+                Order Volume
+              </button>
+            </div>
+          ) : (
+            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-500/20 self-start sm:self-auto">
+              <span>Order Volume Metric</span>
+            </div>
+          )}
         </div>
 
         {/* Line Chart Area */}
@@ -475,7 +616,7 @@ export default function DashboardCharts({
                       textAnchor="end"
                       className="text-[10px] fill-slate-400 dark:fill-slate-500 font-mono"
                     >
-                      {trendMetric === "revenue"
+                      {effectiveTrendMetric === "revenue"
                         ? labelVal >= 1000000
                           ? `${(labelVal / 1000000).toFixed(1)}M`
                           : labelVal >= 1000
@@ -577,12 +718,14 @@ export default function DashboardCharts({
               <div className="font-bold text-slate-300 text-[11px] uppercase tracking-wider">
                 {points[hoveredTrendIdx].item.label}
               </div>
-              <div className="text-emerald-400 font-bold font-mono text-sm">
-                ৳ {points[hoveredTrendIdx].item.revenue.toLocaleString("en-US")} BDT
-              </div>
+              {isAdmin && effectiveTrendMetric === "revenue" && (
+                <div className="text-emerald-400 font-bold font-mono text-sm">
+                  ৳ {points[hoveredTrendIdx].item.revenue.toLocaleString("en-US")} BDT
+                </div>
+              )}
               <div className="text-slate-300 text-[11px] flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
-                <span>{points[hoveredTrendIdx].item.orders} recorded orders</span>
+                <span>{points[hoveredTrendIdx].item.orders.toLocaleString("en-US")} recorded orders</span>
               </div>
             </div>
           )}
@@ -601,10 +744,12 @@ export default function DashboardCharts({
                 </span>
                 <div>
                   <h3 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">
-                    Territory Sales by District
+                    {isAdmin ? "Territory Realized Sales by District" : "Territory Volume by District"}
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Revenue breakdown across primary geographic sales regions
+                    {isAdmin
+                      ? "Completed orders revenue breakdown across primary geographic sales regions"
+                      : "Order count distribution across primary geographic sales regions"}
                   </p>
                 </div>
               </div>
@@ -650,11 +795,13 @@ export default function DashboardCharts({
                           textAnchor="end"
                           className="text-[10px] fill-slate-400 dark:fill-slate-500 font-mono"
                         >
-                          {val >= 1000000
-                            ? `${(val / 1000000).toFixed(1)}M`
-                            : val >= 1000
-                            ? `${Math.round(val / 1000)}k`
-                            : val}
+                          {isAdmin
+                            ? val >= 1000000
+                              ? `${(val / 1000000).toFixed(1)}M`
+                              : val >= 1000
+                              ? `${Math.round(val / 1000)}k`
+                              : val
+                            : Math.round(val)}
                         </text>
                       </g>
                     );
@@ -662,7 +809,8 @@ export default function DashboardCharts({
 
                   {/* Bars */}
                   {districtSales.map((d, idx) => {
-                    const barH = (d.revenue / barYCeil) * barInnerH;
+                    const metricVal = isAdmin ? d.revenue : d.orders;
+                    const barH = (metricVal / (barYCeil || 1)) * barInnerH;
                     const x = barPadLeft + idx * barSlotW + (barSlotW - barWidth) / 2;
                     const y = barPadTop + barInnerH - barH;
                     const isHovered = hoveredDistrictIdx === idx;
@@ -740,13 +888,15 @@ export default function DashboardCharts({
                   <div className="font-bold text-slate-200 text-xs">
                     {districtSales[hoveredDistrictIdx].district}
                   </div>
-                  <div className="text-emerald-400 font-bold font-mono text-sm">
-                    ৳ {districtSales[hoveredDistrictIdx].revenue.toLocaleString("en-US")}
-                  </div>
+                  {isAdmin && (
+                    <div className="text-emerald-400 font-bold font-mono text-sm">
+                      ৳ {districtSales[hoveredDistrictIdx].revenue.toLocaleString("en-US")}
+                    </div>
+                  )}
                   <div className="text-slate-300 text-[11px] flex items-center justify-between gap-4">
-                    <span>{districtSales[hoveredDistrictIdx].orders} Orders</span>
+                    <span>{districtSales[hoveredDistrictIdx].orders.toLocaleString("en-US")} Orders</span>
                     <span className="font-semibold text-indigo-300">
-                      {districtSales[hoveredDistrictIdx].percentage}% Share
+                      {districtSales[hoveredDistrictIdx].percentage}% {isAdmin ? "Realized Share" : "Volume Share"}
                     </span>
                   </div>
                 </div>
@@ -756,7 +906,7 @@ export default function DashboardCharts({
 
           <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
             <span>
-              Primary Core:{" "}
+              {isAdmin ? "Primary Realized Core: " : "Top Core Districts: "}
               <strong className="text-slate-800 dark:text-slate-200">
                 {districtSales.length > 0
                   ? districtSales
@@ -873,9 +1023,17 @@ export default function DashboardCharts({
                           <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
                             {st.status}
                           </div>
-                          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
-                            ৳ {st.revenue.toLocaleString("en-US")}
-                          </div>
+                          {isAdmin && (
+                            <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                              <ConfidentialSpoiler
+                                hidden={isMasked(`st_${st.status}`)}
+                                onToggle={() => toggleMetric(`st_${st.status}`)}
+                                accentColor={cfg.stroke}
+                              >
+                                ৳ {st.revenue.toLocaleString("en-US")}
+                              </ConfidentialSpoiler>
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -922,7 +1080,9 @@ export default function DashboardCharts({
               Territory Performance Matrix
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Comparative order volume and revenue generation ranked by district
+              {isAdmin
+                ? "Comparative order volume and completed revenue generation ranked by district"
+                : "Comparative order volume and market distribution ranked by district"}
             </p>
           </div>
           <span className="shrink-0 text-[10px] sm:text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-2 py-0.5 rounded-md border border-indigo-200/60 dark:border-indigo-500/20">
@@ -937,8 +1097,12 @@ export default function DashboardCharts({
                 <th className="hidden sm:table-cell py-2.5 px-3 w-12">Rank</th>
                 <th className="py-2.5 px-2 sm:px-3">District</th>
                 <th className="py-2.5 px-2 sm:px-3 text-right">Orders</th>
-                <th className="py-2.5 px-2 sm:px-3 text-right">Revenue</th>
-                <th className="py-2.5 px-2 sm:px-3 w-24 sm:w-44 text-right sm:text-left">Market Share</th>
+                {isAdmin && (
+                  <th className="py-2.5 px-2 sm:px-3 text-right">Completed Revenue</th>
+                )}
+                <th className="py-2.5 px-2 sm:px-3 w-24 sm:w-44 text-right sm:text-left">
+                  {isAdmin ? "Realized Share" : "Order Share"}
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100/70 dark:divide-slate-800/50">
@@ -965,18 +1129,23 @@ export default function DashboardCharts({
                     {item.orders.toLocaleString("en-US")}
                   </td>
 
-                  {/* Revenue: Compact on mobile (৳4.22M, ৳581k), Full on desktop */}
-                  <td
-                    className="py-2.5 sm:py-3 px-2 sm:px-3 text-right font-mono font-bold text-slate-900 dark:text-white whitespace-nowrap text-xs"
-                    title={`৳ ${item.revenue.toLocaleString("en-US")}`}
-                  >
-                    <span className="sm:hidden text-indigo-600 dark:text-indigo-400">
-                      {formatCompactBdt(item.revenue)}
-                    </span>
-                    <span className="hidden sm:inline">
-                      ৳ {item.revenue.toLocaleString("en-US")}
-                    </span>
-                  </td>
+                  {/* Revenue: ADMIN ONLY with Blur Spoiler */}
+                  {isAdmin && (
+                    <td className="py-2.5 sm:py-3 px-2 sm:px-3 text-right font-mono font-bold text-slate-900 dark:text-white whitespace-nowrap text-xs">
+                      <ConfidentialSpoiler
+                        hidden={isMasked(`tbl_${item.district}`)}
+                        onToggle={() => toggleMetric(`tbl_${item.district}`)}
+                        accentColor="#6366f1"
+                      >
+                        <span className="sm:hidden text-indigo-600 dark:text-indigo-400">
+                          {formatCompactBdt(item.revenue)}
+                        </span>
+                        <span className="hidden sm:inline">
+                          ৳ {item.revenue.toLocaleString("en-US")}
+                        </span>
+                      </ConfidentialSpoiler>
+                    </td>
+                  )}
 
                   {/* Market Share Progress Bar */}
                   <td className="py-2.5 sm:py-3 px-2 sm:px-3">

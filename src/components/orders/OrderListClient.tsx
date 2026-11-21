@@ -8,6 +8,7 @@ import {
   createOrder,
   cancelOrder,
   deleteOrder,
+  bulkDeleteOrders,
   OrderInput,
   OrderItemInput,
 } from "@/actions/orders";
@@ -17,7 +18,7 @@ import { Pagination } from "@/components/ui/Pagination";
 import { useToast } from "@/components/ui/Toast";
 import RecordOrderModal from "@/components/orders/RecordOrderModal";
 import EditOrderModal, { EditableOrder } from "@/components/orders/EditOrderModal";
-import { Trash2, AlertTriangle, MoreVertical, Eye, Ban, FileEdit } from "lucide-react";
+import { Trash2, Loader2, AlertTriangle, MoreVertical, Eye, Ban, FileEdit } from "lucide-react";
 
 interface OrderItemDisplay {
   id: string;
@@ -102,6 +103,9 @@ export default function OrderListClient({
     businessName: string;
   } | null>(null);
 
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const [deletingOrder, setDeletingOrder] = useState<{
     id: string;
     extId: string | null;
@@ -182,6 +186,58 @@ export default function OrderListClient({
         router.refresh();
       }
     });
+  };
+
+
+  const handleToggleSelectAllPage = () => {
+    const pageIds = paginatedOrders.map((o) => o.id);
+    const allPageSelected = pageIds.length > 0 && pageIds.every((id) => selectedIds.has(id));
+    const next = new Set(selectedIds);
+    if (allPageSelected) {
+      pageIds.forEach((id) => next.delete(id));
+    } else {
+      pageIds.forEach((id) => next.add(id));
+    }
+    setSelectedIds(next);
+  };
+
+  const handleSelectAllFiltered = () => {
+    const allIds = sortedOrders.map((o) => o.id);
+    setSelectedIds(new Set(allIds));
+  };
+
+  const handleClearSelection = () => {
+    setSelectedIds(new Set());
+  };
+
+  const handleToggleRow = (id: string) => {
+    const next = new Set(selectedIds);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    setSelectedIds(next);
+  };
+
+  const confirmBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    setIsBulkDeleting(true);
+    try {
+      const res = await bulkDeleteOrders(Array.from(selectedIds));
+      if (res.error) {
+        toast.error(res.error);
+      } else {
+        toast.success(`Successfully deleted ${res.count} order(s).`);
+        setSelectedIds(new Set());
+        setIsBulkDeleteModalOpen(false);
+        router.refresh();
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete selected orders.");
+    } finally {
+      setIsBulkDeleting(false);
+    }
   };
 
   const confirmDeleteAction = () => {
@@ -285,11 +341,61 @@ export default function OrderListClient({
         </div>
       </div>
 
+
+      {/* Bulk Action Bar */}
+      {canDeleteOrder && selectedIds.size > 0 && (
+        <div className="p-2.5 sm:p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 shadow-md shadow-slate-200/50 dark:shadow-black/30 flex flex-wrap items-center justify-between gap-3 animate-fade-in">
+          <div className="flex items-center gap-2 text-xs sm:text-sm font-medium">
+            <span className="min-w-6 h-6 px-2 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
+              {selectedIds.size}
+            </span>
+            <span className="font-semibold text-slate-800 dark:text-slate-200">order(s) selected</span>
+            {selectedIds.size < sortedOrders.length && (
+              <button
+                type="button"
+                onClick={handleSelectAllFiltered}
+                className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-semibold underline underline-offset-2 ml-1 cursor-pointer"
+              >
+                Select all {sortedOrders.length} matching
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleClearSelection}
+              className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer"
+            >
+              Deselect
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsBulkDeleteModalOpen(true)}
+              className="px-3.5 py-1.5 text-xs font-bold rounded-lg bg-rose-600 hover:bg-rose-500 text-white flex items-center gap-1.5 shadow-sm shadow-rose-600/30 transition-all cursor-pointer active:scale-95"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Delete Selected ({selectedIds.size})
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Orders Table — Desktop View (md:) */}
       <div className="hidden md:block overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/40 shadow-sm">
         <table className="w-full min-w-[850px] text-left border-collapse text-sm">
           <thead>
             <tr className="bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+              {canDeleteOrder && (
+                <th className="px-3 py-3.5 w-10 text-center">
+                  <input
+                    type="checkbox"
+                    checked={paginatedOrders.length > 0 && paginatedOrders.every((o) => selectedIds.has(o.id))}
+                    onChange={handleToggleSelectAllPage}
+                    className="w-4 h-4 rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                    aria-label="Select all orders on this page"
+                  />
+                </th>
+              )}
               <th className="px-4 py-3.5 w-32.5 whitespace-nowrap">Order ID</th>
               <th className="px-4 py-3.5 min-w-45">Client Business</th>
               <th className="px-4 py-3.5 min-w-45">Area / District</th>
@@ -303,13 +409,24 @@ export default function OrderListClient({
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
             {paginatedOrders.length === 0 ? (
               <tr>
-                <td colSpan={8} className="text-center py-12 text-slate-400 dark:text-slate-500 font-medium">
+                <td colSpan={canDeleteOrder ? 9 : 8} className="text-center py-12 text-slate-400 dark:text-slate-500 font-medium">
                   No orders found.
                 </td>
               </tr>
             ) : (
               paginatedOrders.map((o) => (
-                <tr key={o.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/30 transition-colors">
+                <tr key={o.id} className={`hover:bg-slate-50/80 dark:hover:bg-slate-800/30 transition-colors ${selectedIds.has(o.id) ? "bg-blue-50/50 dark:bg-blue-900/10" : ""}`}>
+                  {canDeleteOrder && (
+                    <td className="px-3 py-3.5 w-10 text-center" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(o.id)}
+                        onChange={() => handleToggleRow(o.id)}
+                        className="w-4 h-4 rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                        aria-label={`Select order ${o.externalOrderId || o.id}`}
+                      />
+                    </td>
+                  )}
                   <td className="px-4 py-3.5 whitespace-nowrap">
                     <Link
                       href={`/dashboard/orders/${o.id}`}
@@ -402,6 +519,15 @@ export default function OrderListClient({
               {/* Header: Order ID + Status */}
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
+                  {canDeleteOrder && (
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(o.id)}
+                      onChange={() => handleToggleRow(o.id)}
+                      className="w-4 h-4 rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
+                      aria-label={`Select order ${o.externalOrderId || o.id}`}
+                    />
+                  )}
                   <Link
                     href={`/dashboard/orders/${o.id}`}
                     className="text-xs font-mono font-bold text-blue-600 dark:text-blue-400 hover:underline truncate"
@@ -573,6 +699,67 @@ export default function OrderListClient({
                 className="px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-amber-500 hover:bg-amber-600 text-white shadow-md shadow-amber-500/25 transition-all disabled:opacity-50"
               >
                 {isPending ? "Cancelling…" : "Confirm Cancellation"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+
+      {/* ── Bulk Delete Orders Confirmation Modal ── */}
+      {isBulkDeleteModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xl space-y-5 text-slate-900 dark:text-slate-100">
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Bulk Delete Orders
+                </h3>
+                <p className="text-sm text-slate-600 dark:text-slate-300 mt-1">
+                  Are you sure you want to permanently delete <strong className="text-slate-900 dark:text-white font-semibold">{selectedIds.size}</strong> selected order(s)?
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 text-xs text-rose-700 dark:text-rose-300 space-y-1">
+              <div className="flex items-center gap-1.5 font-bold text-rose-800 dark:text-rose-200">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>Permanent Deletion Warning</span>
+              </div>
+              <p className="leading-relaxed">
+                Deleting these orders will permanently erase them and their item lines from the database. This action cannot be undone.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                disabled={isBulkDeleting}
+                onClick={() => setIsBulkDeleteModalOpen(false)}
+                className="px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all disabled:opacity-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isBulkDeleting}
+                onClick={confirmBulkDelete}
+                className="px-4 py-2 text-xs sm:text-sm font-bold rounded-xl bg-rose-600 hover:bg-rose-500 text-white shadow-md shadow-rose-600/30 flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+              >
+                {isBulkDeleting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>Delete {selectedIds.size} Orders</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

@@ -184,3 +184,41 @@ export async function restoreProduct(id: string) {
     return { error: err.message || "Failed to restore product." };
   }
 }
+
+export async function bulkDeleteProducts(ids: string[]) {
+  const session = await requireAuth();
+  if (!hasPermission(session.user, "canDeleteProduct")) {
+    return { error: "Unauthorized: Only administrators have permission to delete products." };
+  }
+
+  if (!ids || !Array.isArray(ids) || ids.length === 0) {
+    return { error: "No products selected for deletion." };
+  }
+
+  try {
+    const productsWithOrders = await db.product.findMany({
+      where: {
+        id: { in: ids },
+        orderItems: { some: {} },
+      },
+      select: { id: true, name: true },
+    });
+
+    if (productsWithOrders.length > 0) {
+      const names = productsWithOrders.map((p) => p.name).slice(0, 3).join(", ");
+      const extra = productsWithOrders.length > 3 ? ` and ${productsWithOrders.length - 3} more` : "";
+      return {
+        error: `Cannot delete: ${productsWithOrders.length} product(s) (${names}${extra}) are referenced in past orders. Please archive them instead.`,
+      };
+    }
+
+    await db.product.deleteMany({
+      where: { id: { in: ids } },
+    });
+
+    revalidatePath("/dashboard/products");
+    return { success: true, count: ids.length };
+  } catch (err: any) {
+    return { error: err.message || "Failed to delete selected products." };
+  }
+}

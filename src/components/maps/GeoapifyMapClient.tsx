@@ -51,6 +51,8 @@ export default function GeoapifyMapClient({
   const popupsMapRef = useRef<Map<string, { popup: any; point: UnifiedMapPoint }>>(new Map());
   const isInitializingRef = useRef(false);
   const pendingSelectedPointIdRef = useRef<string | null>(null);
+  const handledFocusIdRef = useRef<string | null>(null);
+  const currentOpenPointIdRef = useRef<string | null>(null);
 
   const router = useRouter();
   const toast = useToast();
@@ -154,10 +156,30 @@ export default function GeoapifyMapClient({
   // Points displayed on map (respects the active combined filters)
   const displayedPoints = candidatePoints;
 
-  const greenCount = displayedPoints.filter((p) => p.markerColor === "green").length;
-  const grayCount = displayedPoints.filter((p) => p.markerColor === "gray").length;
-  const redCount = displayedPoints.filter((p) => p.markerColor === "red").length;
-  const unlocatedClients = initialBusinesses.filter((b) => b.latitude == null || b.longitude == null);
+  const { greenCount, grayCount, redCount } = useMemo(() => {
+    let green = 0;
+    let gray = 0;
+    let red = 0;
+    for (let i = 0; i < displayedPoints.length; i++) {
+      const col = displayedPoints[i].markerColor;
+      if (col === "green") green++;
+      else if (col === "gray") gray++;
+      else if (col === "red") red++;
+    }
+    return { greenCount: green, grayCount: gray, redCount: red };
+  }, [displayedPoints]);
+
+  const unlocatedClientsCount = useMemo(() => {
+    return initialBusinesses.filter((b) => b.latitude == null || b.longitude == null).length;
+  }, [initialBusinesses]);
+
+  const filterStats = useMemo(() => ({
+    total: displayedPoints.length,
+    located: displayedPoints.length,
+    unlocated: unlocatedClientsCount,
+    green: greenCount,
+    red: redCount,
+  }), [displayedPoints.length, unlocatedClientsCount, greenCount, redCount]);
 
   // Helper: place the blue pulsing dot on a map instance with single-popup enforcement
   const placePulsingDot = useCallback((map: any, lat: number, lng: number) => {
@@ -194,10 +216,11 @@ export default function GeoapifyMapClient({
 
     const popup = new window.maplibregl.Popup({
       offset: 16,
-      closeButton: true,
+      closeButton: false,
       closeOnClick: true,
+      className: "current-location-popup",
     }).setHTML(
-      `<div style="padding: 6px 10px; font-family: inherit; color: #0f172a; font-size: 12px; font-weight: 600;">📍 আপনি এখানে আছেন</div>`
+      `<div class="map-popup-inner" style="min-width: unset; max-width: unset; padding: 7px 12px; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 6px; white-space: nowrap; line-height: 1.3;"><span>📍 আপনি এখানে আছেন</span></div>`
     );
 
     popup.on("close", () => {
@@ -278,6 +301,17 @@ export default function GeoapifyMapClient({
   const handleLocateMe = () => {
     if (!mapInstanceRef.current || !window.maplibregl) return;
     const map = mapInstanceRef.current;
+
+    // User explicitly triggered current location: dismiss lingering popup & prevent auto-snap back
+    handledFocusIdRef.current = focusId || "__USER_NAVIGATED__";
+    if (activePopupRef.current) {
+      try {
+        activePopupRef.current.remove();
+      } catch (e) {}
+      activePopupRef.current = null;
+    }
+    currentOpenPointIdRef.current = null;
+    setSelectedPoint(null);
 
     setFilters({
       q: "",
@@ -417,6 +451,7 @@ export default function GeoapifyMapClient({
           } catch (e) {}
           activePopupRef.current = null;
         }
+        currentOpenPointIdRef.current = null;
       });
 
       map.on("load", () => {
@@ -426,6 +461,12 @@ export default function GeoapifyMapClient({
 
         if (isRealLocation) {
           placePulsingDot(map, centerLat, centerLng);
+        }
+
+        // Enforce visible default system cursor on canvas (prevents Windows Chromium grab cursor drop bug)
+        const canvas = map.getCanvas();
+        if (canvas) {
+          canvas.style.cursor = "default";
         }
 
         // Always scan 3km around starting coordinates on map load
@@ -728,25 +769,82 @@ export default function GeoapifyMapClient({
 
     const map = mapInstanceRef.current;
 
-    // Clear old markers and close any lingering popups (unless pending selected point)
-    if (activePopupRef.current && !pendingSelectedPointIdRef.current) {
+    // Store which point should remain open (either pending search selection or currently open point)
+    const openPointId = pendingSelectedPointIdRef.current || currentOpenPointIdRef.current;
+
+    // Clear old activePopupRef ONLY if there is no point that should remain open
+    if (activePopupRef.current && !openPointId) {
       try {
         activePopupRef.current.remove();
       } catch (e) {}
       activePopupRef.current = null;
     }
-    if (!pendingSelectedPointIdRef.current) {
+    if (!openPointId) {
       const lingeringPopups = mapContainerRef.current?.querySelectorAll(".maplibregl-popup");
       lingeringPopups?.forEach((p) => p.remove());
     }
 
-    clientMarkersRef.current.forEach((m) => m.remove());
-    clientMarkersRef.current = [];
-    prospectMarkersRef.current.forEach((m) => m.remove());
-    prospectMarkersRef.current = [];
-    popupsMapRef.current.clear();
+    const currentIds = new Set(displayedPoints.map((p) => p.id));
+
+    // Remove only markers that no longer exist in displayedPoints (fast reconciliation!)
+    popupsMapRef.current.forEach((entry, id) => {
+      if (!currentIds.has(id)) {
+        if (id !== currentOpenPointIdRef.current) {
+          try {
+            (entry as any).marker?.remove();
+          } catch (e) {}
+          popupsMapRef.current.delete(id);
+        } else {
+          // If this point is currently open, just hide marker DOM
+          const mEl = (entry as any).marker?.getElement();
+          if (mEl) mEl.style.display = "none";
+        }
+      }
+    });
 
     displayedPoints.forEach((pt) => {
+      const existing = popupsMapRef.current.get(pt.id);
+      if (existing) {
+        existing.point = pt;
+        const mEl = (existing as any).marker?.getElement();
+        if (mEl && mEl.style.display === "none") {
+          mEl.style.display = "";
+        }
+
+        // Check if this existing marker needs to open its popup
+        const isPendingFromSearch = pendingSelectedPointIdRef.current === pt.id;
+        const isFocusFromUrl = Boolean(focusId && pt.id === focusId && handledFocusIdRef.current !== focusId);
+        const shouldKeepOpen = currentOpenPointIdRef.current === pt.id;
+
+        if (isPendingFromSearch || isFocusFromUrl || shouldKeepOpen) {
+          if (isPendingFromSearch) pendingSelectedPointIdRef.current = null;
+          if (isFocusFromUrl) {
+            handledFocusIdRef.current = focusId!;
+            if (typeof window !== "undefined" && window.history && window.location.search) {
+              const url = new URL(window.location.href);
+              url.searchParams.delete("focus");
+              window.history.replaceState(null, "", url.pathname + (url.search ? url.search : ""));
+            }
+          }
+          currentOpenPointIdRef.current = pt.id;
+          if (activePopupRef.current && activePopupRef.current !== existing.popup) {
+            try { activePopupRef.current.remove(); } catch (err) {}
+            activePopupRef.current = null;
+          }
+          existing.popup.setLngLat([pt.longitude, pt.latitude]).addTo(map);
+          activePopupRef.current = existing.popup;
+          setSelectedPoint(pt);
+
+          if (isPendingFromSearch || isFocusFromUrl) {
+            map.flyTo({
+              center: [pt.longitude, pt.latitude],
+              zoom: 16,
+              speed: 1.4,
+            });
+          }
+        }
+        return;
+      }
       const isGreen = pt.markerColor === "green";
       const isGray = pt.markerColor === "gray" || pt.isArchived;
       const catLower = pt.category.toLowerCase();
@@ -775,6 +873,8 @@ export default function GeoapifyMapClient({
         ? "0 0 10px rgba(100, 116, 139, 0.85), 0 2px 4px rgba(0,0,0,0.2)"
         : "0 0 12px rgba(239, 68, 68, 0.85), 0 2px 4px rgba(0,0,0,0.2)";
       el.style.cursor = "pointer";
+      el.style.userSelect = "none";
+      (el.style as any).webkitUserSelect = "none";
       el.style.display = "flex";
       el.style.alignItems = "center";
       el.style.justifyContent = "center";
@@ -833,6 +933,9 @@ export default function GeoapifyMapClient({
       popup.on("close", () => {
         if (activePopupRef.current === popup) {
           activePopupRef.current = null;
+        }
+        if (currentOpenPointIdRef.current === pt.id) {
+          currentOpenPointIdRef.current = null;
         }
       });
 
@@ -899,6 +1002,7 @@ export default function GeoapifyMapClient({
         if (activePopupRef.current === popup && popup.isOpen()) {
           popup.remove();
           activePopupRef.current = null;
+          currentOpenPointIdRef.current = null;
           return;
         }
 
@@ -917,6 +1021,7 @@ export default function GeoapifyMapClient({
         // 4. Open this popup at the marker's coordinates
         popup.setLngLat([pt.longitude, pt.latitude]).addTo(map);
         activePopupRef.current = popup;
+        currentOpenPointIdRef.current = pt.id;
         setSelectedPoint(pt);
       });
 
@@ -926,30 +1031,47 @@ export default function GeoapifyMapClient({
         prospectMarkersRef.current.push(marker);
       }
 
-      popupsMapRef.current.set(pt.id, { popup, point: pt });
+      popupsMapRef.current.set(pt.id, { popup, point: pt, marker } as any);
 
-      // If this is the focused business from URL OR pending selected from search, auto-center and open popup!
+      // If this is the focused business from URL OR pending selected from search OR previously open point, open/keep popup!
       const isPendingFromSearch = pendingSelectedPointIdRef.current === pt.id;
-      const isFocusFromUrl = focusId && pt.id === focusId;
+      const isFocusFromUrl = Boolean(focusId && pt.id === focusId && handledFocusIdRef.current !== focusId);
+      const shouldKeepOpen = currentOpenPointIdRef.current === pt.id;
 
-      if (isPendingFromSearch || isFocusFromUrl) {
+      if (isPendingFromSearch || isFocusFromUrl || shouldKeepOpen) {
         if (isPendingFromSearch) {
           pendingSelectedPointIdRef.current = null;
         }
-        if (activePopupRef.current) {
+        if (isFocusFromUrl) {
+          handledFocusIdRef.current = focusId!;
+          if (typeof window !== "undefined" && window.history && window.location.search) {
+            const url = new URL(window.location.href);
+            url.searchParams.delete("focus");
+            window.history.replaceState(null, "", url.pathname + (url.search ? url.search : ""));
+          }
+        }
+
+        currentOpenPointIdRef.current = pt.id;
+
+        if (activePopupRef.current && activePopupRef.current !== popup) {
           try {
             activePopupRef.current.remove();
           } catch (err) {}
           activePopupRef.current = null;
         }
+
         popup.setLngLat([pt.longitude, pt.latitude]).addTo(map);
         activePopupRef.current = popup;
         setSelectedPoint(pt);
-        map.flyTo({
-          center: [pt.longitude, pt.latitude],
-          zoom: 16,
-          speed: 1.4,
-        });
+
+        // Fly to location on initial focus or pending search, NOT on background prospect updates!
+        if (isPendingFromSearch || isFocusFromUrl) {
+          map.flyTo({
+            center: [pt.longitude, pt.latitude],
+            zoom: 16,
+            speed: 1.4,
+          });
+        }
       }
     });
   }, [mapLoaded, displayedPoints, focusId]);
@@ -978,6 +1100,7 @@ export default function GeoapifyMapClient({
 
     if (record) {
       pendingSelectedPointIdRef.current = null;
+      currentOpenPointIdRef.current = pt.id;
       map.flyTo({ center: [pt.longitude, pt.latitude], zoom: 16, speed: 1.4, essential: true });
       map.once("moveend", () => {
         if (activePopupRef.current && activePopupRef.current !== record!.popup) {
@@ -988,6 +1111,7 @@ export default function GeoapifyMapClient({
       });
     } else {
       pendingSelectedPointIdRef.current = pt.id;
+      currentOpenPointIdRef.current = pt.id;
       map.flyTo({ center: [pt.longitude, pt.latitude], zoom: 16, speed: 1.4, essential: true });
 
       if (!pt.isClient) {
@@ -1022,6 +1146,16 @@ export default function GeoapifyMapClient({
 
     // When district changes: fly to that district & scan nearby prospects
     if (newFilters.district !== filters.district && newFilters.district !== "ALL") {
+      handledFocusIdRef.current = focusId || "__USER_NAVIGATED__";
+      if (activePopupRef.current) {
+        try {
+          activePopupRef.current.remove();
+        } catch (e) {}
+        activePopupRef.current = null;
+      }
+      currentOpenPointIdRef.current = null;
+      setSelectedPoint(null);
+
       const coords = getDistrictCoordinates(newFilters.district);
       if (coords && mapInstanceRef.current) {
         mapInstanceRef.current.flyTo({
@@ -1035,7 +1169,7 @@ export default function GeoapifyMapClient({
         handleScanArea(coords.lat, coords.lng, 8000);
       }
     }
-  }, [filters.district]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filters.district, focusId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -1058,13 +1192,7 @@ export default function GeoapifyMapClient({
         areas={areas || []}
         candidateBusinesses={candidatePoints}
         onSelectBusiness={handleSelectBusinessFromSearch}
-        stats={{
-          total: displayedPoints.length,
-          located: displayedPoints.length,
-          unlocated: unlocatedClients.length,
-          green: greenCount,
-          red: redCount,
-        }}
+        stats={filterStats}
       />
       </div>
 
@@ -1090,7 +1218,7 @@ export default function GeoapifyMapClient({
         {/* Map Canvas */}
         <div
           ref={mapCanvasRef}
-          className={`relative rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 shadow-lg min-h-110 sm:min-h-135 transition-all ${
+          className={`relative rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 shadow-lg min-h-110 sm:min-h-135 ${
             isFullscreen
               ? "map-canvas-fullscreen"
               : ""
@@ -1098,7 +1226,7 @@ export default function GeoapifyMapClient({
         >
           <div
             ref={mapContainerRef}
-            className={`w-full bg-slate-100 dark:bg-slate-900 transition-all ${
+            className={`w-full bg-slate-100 dark:bg-slate-900 ${
               isFullscreen ? "h-screen min-h-screen" : "h-full min-h-110 sm:min-h-135"
             }`}
           />

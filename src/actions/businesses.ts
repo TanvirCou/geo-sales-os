@@ -815,3 +815,33 @@ export async function getBusinessFilterOptions() {
 
   return { categories, areas, districts };
 }
+
+export async function bulkDeleteBusinesses(ids: string[]) {
+  const session = await requireAuth();
+  if (!hasPermission(session.user, "canDeleteBusiness")) {
+    return { error: "Unauthorized: Only administrators have permission to delete businesses." };
+  }
+
+  if (!ids || !Array.isArray(ids) || ids.length === 0) {
+    return { error: "No businesses selected for deletion." };
+  }
+
+  try {
+    await db.$transaction(async (tx) => {
+      await tx.order.deleteMany({
+        where: { businessId: { in: ids } },
+      });
+      await tx.business.deleteMany({
+        where: { id: { in: ids } },
+      });
+    });
+
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/businesses");
+    revalidatePath("/dashboard/map");
+    revalidatePath("/dashboard/orders");
+    return { success: true, count: ids.length };
+  } catch (err: any) {
+    return { error: err.message || "Failed to delete selected businesses." };
+  }
+}
